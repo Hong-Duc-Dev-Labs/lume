@@ -4,126 +4,287 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.material3.Card
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalView
 import com.hongducdev.toolkit.car.CarDashboardScreen
 import com.hongducdev.toolkit.car.CarMapHttpConfig
 import com.hongducdev.toolkit.ui.LockscreenLunarScreen
+import com.hongducdev.toolkit.ui.components.EssentialsFloatingToolbar
+import com.hongducdev.toolkit.ui.components.ToolbarItem
+import com.hongducdev.toolkit.ui.screens.AboutScreen
+import com.hongducdev.toolkit.ui.screens.HomeScreen
+import com.hongducdev.toolkit.ui.theme.ToolkitTheme
+import com.hongducdev.toolkit.utils.HapticUtil
+import kotlinx.coroutines.launch
 import org.maplibre.android.MapLibre
+import kotlin.math.abs
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        // Khởi tạo MapLibre và HTTP network client kháng lỗi SELinux/DNS sớm nhất
+        // Initialize MapLibre & network config
         MapLibre.getInstance(applicationContext)
         CarMapHttpConfig.initialize(applicationContext)
         MapLibre.setConnected(true)
 
-        val startScreen = when (intent?.getStringExtra("screen")) {
-            "car" -> Screen.CAR_DASHBOARD
-            "lunar" -> Screen.LOCKSCREEN_LUNAR
-            else -> Screen.HOME
-        }
+        val startTab =
+            when (intent?.getStringExtra("screen")) {
+                "car" -> NavTab.CAR
+                "lunar" -> NavTab.LUNAR
+                else -> NavTab.HOME
+            }
 
         setContent {
-            MaterialTheme {
-                Surface(Modifier.fillMaxSize()) {
-                    ToolkitApp(defaultScreen = startScreen)
+            ToolkitTheme(
+                darkTheme = isSystemInDarkTheme(),
+                pitchBlackTheme = true,
+                dynamicColor = true,
+            ) {
+                ToolkitApp(initialTab = startTab)
+            }
+        }
+    }
+}
+
+enum class NavTab(
+    val title: String,
+    val icon: ImageVector,
+) {
+    HOME("Essentials", Icons.Rounded.Home),
+    LUNAR("Lịch âm", Icons.Rounded.CalendarMonth),
+    ABOUT("About", Icons.Rounded.Info),
+    CAR("Car Mode", Icons.Rounded.DirectionsCar),
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ToolkitApp(
+    initialTab: NavTab = NavTab.HOME,
+) {
+    val view = LocalView.current
+    val scope = rememberCoroutineScope()
+    var isCarModeActive by rememberSaveable { mutableStateOf(initialTab == NavTab.CAR) }
+
+    val mainTabs = remember { listOf(NavTab.HOME, NavTab.LUNAR, NavTab.ABOUT) }
+    val initialPage =
+        remember {
+            val idx = mainTabs.indexOf(initialTab)
+            if (idx >= 0) idx else 0
+        }
+
+    val pagerState =
+        rememberPagerState(
+            initialPage = initialPage,
+            pageCount = { mainTabs.size },
+        )
+
+    BackHandler(enabled = isCarModeActive || pagerState.currentPage != 0) {
+        if (isCarModeActive) {
+            isCarModeActive = false
+        } else {
+            scope.launch {
+                pagerState.animateScrollToPage(
+                    0,
+                    animationSpec =
+                        spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                )
+            }
+        }
+    }
+
+    // Full-screen Car Dashboard mode when active
+    if (isCarModeActive) {
+        CarDashboardScreen(
+            onExit = { isCarModeActive = false },
+        )
+        return
+    }
+
+    // Bucketed rumble haptic feedback while swiping between tabs (Essentials style)
+    var lastSwipeHapticBucket by remember { mutableIntStateOf(0) }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPageOffsetFraction }
+            .collect { offset ->
+                val fraction = abs(offset)
+                val currentBucket = (fraction * 10f).toInt()
+                if (currentBucket != lastSwipeHapticBucket) {
+                    lastSwipeHapticBucket = currentBucket
+                    HapticUtil.performSliderHaptic(view)
                 }
             }
-        }
     }
-}
 
-private enum class Screen { HOME, LOCKSCREEN_LUNAR, CAR_DASHBOARD }
-
-@Composable
-private fun ToolkitApp(defaultScreen: Screen = Screen.HOME) {
-    var screen by rememberSaveable { mutableStateOf(defaultScreen) }
-    BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
-
-    when (screen) {
-        Screen.HOME -> HomeScreen(
-            modifier = Modifier
-                .fillMaxSize()
-                .safeDrawingPadding()
-                .padding(16.dp),
-            onOpenLunar = { screen = Screen.LOCKSCREEN_LUNAR },
-            onOpenCarDashboard = { screen = Screen.CAR_DASHBOARD }
-        )
-        Screen.LOCKSCREEN_LUNAR -> LockscreenLunarScreen(
-            modifier = Modifier
-                .fillMaxSize()
-                .safeDrawingPadding()
-        )
-        Screen.CAR_DASHBOARD -> CarDashboardScreen(
-            onExit = { screen = Screen.HOME }
-        )
+    // Heavy haptic when landing on a new tab
+    LaunchedEffect(pagerState) {
+        var isFirst = true
+        snapshotFlow { pagerState.currentPage }
+            .collect {
+                if (isFirst) {
+                    isFirst = false
+                } else {
+                    HapticUtil.performHeavyHaptic(view)
+                }
+            }
     }
-}
 
-@Composable
-private fun HomeScreen(
-    modifier: Modifier = Modifier,
-    onOpenLunar: () -> Unit,
-    onOpenCarDashboard: () -> Unit
-) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text(
-            text = "Toolkit",
-            style = MaterialTheme.typography.headlineMedium
-        )
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onOpenLunar)
+    val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val contentPadding = PaddingValues(top = topInset)
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        topBar = {},
+        bottomBar = {},
+    ) { _ ->
+        Box(
+            modifier = Modifier.fillMaxSize(),
         ) {
-            Column(Modifier.padding(16.dp)) {
-                Text(
-                    text = "Lịch âm màn hình khóa",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = "Hiển thị lịch âm Việt Nam trên màn hình khóa: trong dòng ngày nếu có root, hoặc vẽ lên hình nền nếu không.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
+            // HorizontalPager allowing smooth gestures between tabs
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
+                when (mainTabs[page]) {
+                    NavTab.HOME -> {
+                        HomeScreen(
+                            contentPadding = contentPadding,
+                            onOpenLunar = {
+                                scope.launch {
+                                    val lunarIdx = mainTabs.indexOf(NavTab.LUNAR)
+                                    if (lunarIdx >= 0) pagerState.animateScrollToPage(lunarIdx)
+                                }
+                            },
+                            onOpenCarDashboard = { isCarModeActive = true },
+                        )
+                    }
+
+                    NavTab.LUNAR -> {
+                        LockscreenLunarScreen(
+                            contentPadding = contentPadding,
+                        )
+                    }
+
+                    NavTab.ABOUT -> {
+                        AboutScreen(
+                            contentPadding = contentPadding,
+                        )
+                    }
+
+                    NavTab.CAR -> {}
+                }
             }
-        }
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onOpenCarDashboard)
-        ) {
-            Column(Modifier.padding(16.dp)) {
-                Text(
-                    text = "Car Dashboard (Chế độ lái xe)",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = "Giao diện Android Auto Coolwalk: Bản đồ nhúng MapLibre định vị thời gian thực, điều khiển nhạc trực tiếp (Spotify/Zing MP3), đồng hồ tốc độ GPS và dock điều khiển.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
+
+            // Material 3 Expressive Horizontal Floating Toolbar
+            EssentialsFloatingToolbar(
+                items =
+                    listOf(
+                        ToolbarItem(
+                            icon = NavTab.HOME.icon,
+                            label = NavTab.HOME.title,
+                            onClick = {
+                                scope.launch {
+                                    pagerState.animateScrollToPage(
+                                        0,
+                                        animationSpec =
+                                            spring(
+                                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                                stiffness = Spring.StiffnessMediumLow,
+                                            ),
+                                    )
+                                }
+                            },
+                        ),
+                        ToolbarItem(
+                            icon = NavTab.LUNAR.icon,
+                            label = NavTab.LUNAR.title,
+                            onClick = {
+                                scope.launch {
+                                    pagerState.animateScrollToPage(
+                                        1,
+                                        animationSpec =
+                                            spring(
+                                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                                stiffness = Spring.StiffnessMediumLow,
+                                            ),
+                                    )
+                                }
+                            },
+                        ),
+                        ToolbarItem(
+                            icon = NavTab.CAR.icon,
+                            label = NavTab.CAR.title,
+                            onClick = {
+                                HapticUtil.performVirtualKeyHaptic(view)
+                                isCarModeActive = true
+                            },
+                        ),
+                        ToolbarItem(
+                            icon = NavTab.ABOUT.icon,
+                            label = NavTab.ABOUT.title,
+                            onClick = {
+                                scope.launch {
+                                    pagerState.animateScrollToPage(
+                                        2,
+                                        animationSpec =
+                                            spring(
+                                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                                stiffness = Spring.StiffnessMediumLow,
+                                            ),
+                                    )
+                                }
+                            },
+                        ),
+                    ),
+                selectedIndex =
+                    if (isCarModeActive) {
+                        2
+                    } else {
+                        when (pagerState.currentPage) {
+                            0 -> 0
+                            1 -> 1
+                            2 -> 3
+                            else -> 0
+                        }
+                    },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     }
 }
