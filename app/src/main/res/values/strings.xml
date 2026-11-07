@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Toolkit</string>
+    <string name="lunar_wallpaper_label">Toolkit - Lịch âm</string>
+    <string name="lunar_wallpaper_description">Hình nền màn hình khóa có hiển thị lịch âm.</string>
+</resources>
