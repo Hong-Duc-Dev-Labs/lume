@@ -36,10 +36,15 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
 
 private const val TAG = "CarMapView"
 
@@ -81,12 +86,18 @@ private val OSM_RASTER_STYLE_JSON = """
 }
 """.trimIndent()
 
+private const val ROUTE_SOURCE_ID = "car-route-source"
+private const val ROUTE_CASING_LAYER_ID = "car-route-casing"
+private const val ROUTE_LINE_LAYER_ID = "car-route-line"
+
 @Composable
 fun CarMapView(
     locationState: CarLocationState,
     modifier: Modifier = Modifier,
     isDarkMode: Boolean = false,
     followCar: Boolean = true,
+    routeGeoJson: String? = null,
+    destinationLatLng: LatLng? = null,
     onFollowCarChanged: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -100,12 +111,56 @@ fun CarMapView(
         label = "animatedBearing"
     )
 
+    fun updateRouteOnMap(map: MapLibreMap, geoJson: String?) {
+        val style = map.style ?: return
+        try {
+            var source = style.getSourceAs<GeoJsonSource>(ROUTE_SOURCE_ID)
+            if (source == null) {
+                source = GeoJsonSource(ROUTE_SOURCE_ID)
+                style.addSource(source)
+
+                val casing = LineLayer(ROUTE_CASING_LAYER_ID, ROUTE_SOURCE_ID).apply {
+                    setProperties(
+                        PropertyFactory.lineColor(android.graphics.Color.parseColor("#0077FF")),
+                        PropertyFactory.lineWidth(9.5f),
+                        PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                        PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                        PropertyFactory.lineOpacity(0.85f)
+                    )
+                }
+                style.addLayer(casing)
+
+                val line = LineLayer(ROUTE_LINE_LAYER_ID, ROUTE_SOURCE_ID).apply {
+                    setProperties(
+                        PropertyFactory.lineColor(android.graphics.Color.parseColor("#00E5FF")),
+                        PropertyFactory.lineWidth(5.5f),
+                        PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                        PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
+                    )
+                }
+                style.addLayer(line)
+            }
+
+            if (!geoJson.isNullOrEmpty()) {
+                source.setGeoJson(geoJson)
+            } else {
+                source.setGeoJson("{\"type\":\"FeatureCollection\",\"features\":[]}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating route layer", e)
+        }
+    }
+
     fun applyMapStyle(map: MapLibreMap, dark: Boolean) {
         val styleUrl = if (dark) OFM_DARK_STYLE_URL else OFM_LIBERTY_STYLE_URL
         Log.d(TAG, "Applying style: $styleUrl")
         map.setStyle(Style.Builder().fromUri(styleUrl)) { _ ->
             isStyleLoaded = true
             Log.d(TAG, "Style loaded successfully from $styleUrl")
+            // Khôi phục route layer nếu đang có route
+            if (!routeGeoJson.isNullOrEmpty()) {
+                updateRouteOnMap(map, routeGeoJson)
+            }
         }
     }
 
@@ -120,6 +175,9 @@ fun CarMapView(
                 mapLibreMap?.setStyle(Style.Builder().fromJson(OSM_RASTER_STYLE_JSON)) {
                     isStyleLoaded = true
                     Log.d(TAG, "Fallback OSM raster style loaded")
+                    if (!routeGeoJson.isNullOrEmpty()) {
+                        mapLibreMap?.let { updateRouteOnMap(it, routeGeoJson) }
+                    }
                 }
             }
 
@@ -159,6 +217,31 @@ fun CarMapView(
         val map = mapLibreMap
         if (map != null) {
             applyMapStyle(map, isDarkMode)
+        }
+    }
+
+    // Cập nhật tuyến đường khi routeGeoJson thay đổi
+    LaunchedEffect(routeGeoJson, isStyleLoaded) {
+        val map = mapLibreMap
+        if (map != null && isStyleLoaded) {
+            updateRouteOnMap(map, routeGeoJson)
+        }
+    }
+
+    // Tự động thu phóng để thấy toàn bộ lộ trình khi có điểm đến mới
+    LaunchedEffect(destinationLatLng, routeGeoJson) {
+        val map = mapLibreMap
+        if (map != null && isStyleLoaded && destinationLatLng != null && !routeGeoJson.isNullOrEmpty()) {
+            try {
+                val bounds = LatLngBounds.Builder()
+                    .include(LatLng(locationState.latitude, locationState.longitude))
+                    .include(destinationLatLng)
+                    .build()
+                map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 120), 1000)
+                onFollowCarChanged(false) // Tạm nhường camera cho toàn bộ lộ trình
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed animating camera to route bounds", e)
+            }
         }
     }
 

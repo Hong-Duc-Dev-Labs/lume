@@ -11,6 +11,7 @@ import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -19,12 +20,17 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,35 +44,52 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.HomeWork
 import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.LocalGasStation
+import androidx.compose.material.icons.rounded.LocalHospital
+import androidx.compose.material.icons.rounded.LocalParking
 import androidx.compose.material.icons.rounded.LocationCity
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Navigation
+import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -78,6 +101,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,8 +121,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import org.maplibre.android.geometry.LatLng
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -112,6 +140,11 @@ import kotlin.math.sin
  * - Cụm HUD tốc độ kính mờ (Frosted Glass HUD) với thước đo tỷ lệ tốc độ.
  * - Biển báo giới hạn tốc độ chuẩn QCVN 41:2019 và hiệu ứng vầng sáng cảnh báo quá tốc độ.
  * - Thẻ cảnh báo biển báo/camera thông minh dạng viên thuốc phát sáng.
+ * - CHỌN ĐỊA ĐIỂM & CHỈ ĐƯỜNG:
+ *     + Tìm kiếm địa danh bằng Photon / OpenStreetMap Geocoder (tiếng Việt).
+ *     + Tính toán lộ trình lái xe OSRM, vẽ dải đường phát sáng xanh Cyan trên bản đồ.
+ *     + Thẻ xem trước lộ trình (Khoảng cách km, Thời gian dự kiến phút/giờ).
+ *     + Nút kích hoạt Google Maps Navigation Turn-by-Turn chuyên sâu có giọng nói.
  * - Cụm Widget media cảm ứng lớn phong cách Audiophile Modern Luxury với:
  *     + Đĩa than Vinyl xoay 360° tự nhiên khi phát nhạc, trượt ra từ bìa album.
  *     + Dải quang phổ âm thanh đa băng tần (Audiophile Waveform Visualizer).
@@ -127,6 +160,7 @@ fun CarDashboardScreen(
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val coroutineScope = rememberCoroutineScope()
 
     // Giữ màn hình luôn sáng trong suốt hành trình lái xe
     DisposableEffect(Unit) {
@@ -144,6 +178,16 @@ fun CarDashboardScreen(
     // Quản lý Cảnh báo tốc độ & Biển báo giao thông
     val alertManager = remember { CarSpeedAlertManager(context) }
     val alertState by alertManager.alertState.collectAsState()
+
+    // Quản lý Lộ trình & Tìm kiếm điểm đến
+    val routingManager = remember { CarRoutingManager(context) }
+    val activeRoute by routingManager.activeRoute.collectAsState()
+    val searchResults by routingManager.searchResults.collectAsState()
+    val isSearching by routingManager.isSearching.collectAsState()
+    val isLoadingRoute by routingManager.isLoadingRoute.collectAsState()
+
+    // Trạng thái hiển thị hộp thoại tìm kiếm
+    var isSearchDialogOpen by remember { mutableStateOf(false) }
 
     // Chế độ mô phỏng tốc độ khi test trên bàn (chạm vào ô tốc độ để test)
     var simulatedSpeed by remember { mutableStateOf<Int?>(null) }
@@ -228,6 +272,9 @@ fun CarDashboardScreen(
         }
     }
 
+    // Tọa độ đích cho camera MapLibre
+    val destinationLatLng = activeRoute?.let { LatLng(it.destinationLat, it.destinationLng) }
+
     Surface(
         modifier = modifier.fillMaxSize(),
         color = Color(0xFF0A0B0E)
@@ -239,14 +286,14 @@ fun CarDashboardScreen(
                     timeString = currentTimeString,
                     dateString = currentDateString,
                     onExit = onExit,
-                    onOpenMaps = { openGoogleMaps(context) },
+                    onOpenMaps = { isSearchDialogOpen = true },
                     onOpenDialer = { openDialer(context) },
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(76.dp)
                 )
 
-                // Nội dung chính: Bản đồ chiếm 60%, Nhạc chiếm 40% (Audiophile layout)
+                // Nội dung chính: Bản đồ chiếm 58%, Nhạc chiếm 42% (Audiophile layout)
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
@@ -259,13 +306,30 @@ fun CarDashboardScreen(
                         alertState = alertState,
                         followCar = followCar,
                         isDarkMode = isDarkMode,
+                        activeRoute = activeRoute,
+                        routeGeoJson = activeRoute?.geoJson,
+                        destinationLatLng = destinationLatLng,
+                        isLoadingRoute = isLoadingRoute,
+                        onOpenSearch = { isSearchDialogOpen = true },
+                        onStartNavigation = {
+                            activeRoute?.let { route ->
+                                routingManager.startGoogleNavigation(
+                                    route.destinationLat,
+                                    route.destinationLng,
+                                    route.destinationName
+                                )
+                            }
+                        },
+                        onClearRoute = {
+                            routingManager.clearRoute()
+                            followCar = true
+                        },
                         onToggleDarkMode = { isDarkMode = !isDarkMode },
                         onToggleVoiceAlert = { alertManager.toggleVoiceAlert() },
                         onCycleSpeedLimit = { alertManager.cycleSpeedLimit() },
                         onCycleApproachingSign = { alertManager.cycleApproachingSign() },
                         onSimulateSpeed = onToggleSimulatedSpeed,
                         onFollowCarChanged = { followCar = it },
-                        onOpenGoogleMaps = { openGoogleMaps(context) },
                         modifier = Modifier
                             .weight(0.58f)
                             .fillMaxHeight()
@@ -289,15 +353,32 @@ fun CarDashboardScreen(
                     alertState = alertState,
                     followCar = followCar,
                     isDarkMode = isDarkMode,
+                    activeRoute = activeRoute,
+                    routeGeoJson = activeRoute?.geoJson,
+                    destinationLatLng = destinationLatLng,
+                    isLoadingRoute = isLoadingRoute,
+                    onOpenSearch = { isSearchDialogOpen = true },
+                    onStartNavigation = {
+                        activeRoute?.let { route ->
+                            routingManager.startGoogleNavigation(
+                                route.destinationLat,
+                                route.destinationLng,
+                                route.destinationName
+                            )
+                        }
+                    },
+                    onClearRoute = {
+                        routingManager.clearRoute()
+                        followCar = true
+                    },
                     onToggleDarkMode = { isDarkMode = !isDarkMode },
                     onToggleVoiceAlert = { alertManager.toggleVoiceAlert() },
                     onCycleSpeedLimit = { alertManager.cycleSpeedLimit() },
                     onCycleApproachingSign = { alertManager.cycleApproachingSign() },
                     onSimulateSpeed = onToggleSimulatedSpeed,
                     onFollowCarChanged = { followCar = it },
-                    onOpenGoogleMaps = { openGoogleMaps(context) },
                     modifier = Modifier
-                        .weight(0.52f)
+                        .weight(0.54f)
                         .fillMaxWidth()
                         .padding(8.dp)
                 )
@@ -306,7 +387,7 @@ fun CarDashboardScreen(
                     mediaState = mediaState,
                     onOpenPermissionSettings = { openNotificationListenerSettings(context) },
                     modifier = Modifier
-                        .weight(0.38f)
+                        .weight(0.36f)
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp)
                 )
@@ -315,7 +396,7 @@ fun CarDashboardScreen(
                     timeString = currentTimeString,
                     dateString = currentDateString,
                     onExit = onExit,
-                    onOpenMaps = { openGoogleMaps(context) },
+                    onOpenMaps = { isSearchDialogOpen = true },
                     onOpenDialer = { openDialer(context) },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -323,6 +404,32 @@ fun CarDashboardScreen(
                         .padding(8.dp)
                 )
             }
+        }
+
+        // HỘP THOẠI TÌM KIẾM ĐỊA ĐIỂM CHỈ ĐƯỜNG (DESTINATION SEARCH DIALOG)
+        if (isSearchDialogOpen) {
+            DestinationSearchDialog(
+                userLat = locationState.latitude,
+                userLng = locationState.longitude,
+                searchResults = searchResults,
+                isSearching = isSearching,
+                onSearch = { query ->
+                    coroutineScope.launch {
+                        routingManager.searchPlaces(query, locationState.latitude, locationState.longitude)
+                    }
+                },
+                onSelectDestination = { dest ->
+                    isSearchDialogOpen = false
+                    coroutineScope.launch {
+                        routingManager.calculateRoute(
+                            startLat = locationState.latitude,
+                            startLng = locationState.longitude,
+                            destination = dest
+                        )
+                    }
+                },
+                onDismiss = { isSearchDialogOpen = false }
+            )
         }
     }
 }
@@ -334,13 +441,19 @@ private fun CarMapCard(
     alertState: CarSpeedAlertState,
     followCar: Boolean,
     isDarkMode: Boolean,
+    activeRoute: RouteInfo?,
+    routeGeoJson: String?,
+    destinationLatLng: LatLng?,
+    isLoadingRoute: Boolean,
+    onOpenSearch: () -> Unit,
+    onStartNavigation: () -> Unit,
+    onClearRoute: () -> Unit,
     onToggleDarkMode: () -> Unit,
     onToggleVoiceAlert: () -> Unit,
     onCycleSpeedLimit: () -> Unit,
     onCycleApproachingSign: () -> Unit,
     onSimulateSpeed: () -> Unit,
     onFollowCarChanged: (Boolean) -> Unit,
-    onOpenGoogleMaps: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -354,6 +467,8 @@ private fun CarMapCard(
                 locationState = locationState,
                 isDarkMode = isDarkMode,
                 followCar = followCar,
+                routeGeoJson = routeGeoJson,
+                destinationLatLng = destinationLatLng,
                 onFollowCarChanged = onFollowCarChanged,
                 modifier = Modifier.fillMaxSize()
             )
@@ -451,7 +566,7 @@ private fun CarMapCard(
                 }
             }
 
-            // Nút điều khiển nhanh bên phải: Định tâm, Giọng nói, Sáng/Tối, Maps
+            // Nút điều khiển nhanh bên phải: Định tâm, Giọng nói, Sáng/Tối, Tìm đường
             Column(
                 modifier = Modifier
                     .padding(14.dp)
@@ -480,11 +595,494 @@ private fun CarMapCard(
                 )
 
                 CockpitActionButton(
-                    icon = Icons.Rounded.Navigation,
-                    isActive = false,
-                    activeColor = Color(0xFF2979FF),
-                    onClick = onOpenGoogleMaps
+                    icon = Icons.Rounded.Search,
+                    isActive = activeRoute != null,
+                    activeColor = Color(0xFF00E5FF),
+                    onClick = onOpenSearch
                 )
+            }
+
+            // VÙNG ĐIỀU KHIỂN ĐIỂM ĐẾN PHÍA DƯỚI BẢN ĐỒ (BOTTOM ROUTE / SEARCH)
+            if (activeRoute == null) {
+                // Thanh gõ tìm kiếm kính mờ (Search Pill)
+                Card(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .clip(RoundedCornerShape(30.dp))
+                        .clickable { onOpenSearch() }
+                        .shadow(8.dp, RoundedCornerShape(30.dp)),
+                    shape = RoundedCornerShape(30.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xD910131E)),
+                    border = BorderStroke(1.dp, Color(0x332979FF))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = "Search",
+                            tint = Color(0xFF2979FF),
+                            modifier = Modifier.size(20.dp)
+                        )
+
+                        Text(
+                            text = "Tìm điểm đến chỉ đường...",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFB0BEC5)
+                        )
+
+                        Spacer(Modifier.width(6.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x3300E676)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.NearMe,
+                                contentDescription = null,
+                                tint = Color(0xFF00E676),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+            } else {
+                // Thẻ xem trước lộ trình (Floating Route Summary Card)
+                FloatingRoutePreviewCard(
+                    route = activeRoute,
+                    onStartNavigation = onStartNavigation,
+                    onCancelRoute = onClearRoute,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(12.dp)
+                )
+            }
+
+            // Chỉ báo khi đang tính toán lộ trình OSRM
+            if (isLoadingRoute) {
+                Card(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .shadow(12.dp, RoundedCornerShape(16.dp)),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xE6101420)),
+                    border = BorderStroke(1.dp, Color(0x4D00E5FF))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Color(0xFF00E5FF),
+                            strokeWidth = 2.5.dp
+                        )
+                        Text(
+                            text = "Đang vẽ lộ trình xe hơi...",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * THẺ XEM TRƯỚC LỘ TRÌNH (FLOATING ROUTE PREVIEW CARD):
+ * Hiển thị điểm đến, khoảng cách km, thời gian ước tính, nút Bắt đầu chỉ đường Google Maps & Hủy
+ */
+@Composable
+private fun FloatingRoutePreviewCard(
+    route: RouteInfo,
+    onStartNavigation: () -> Unit,
+    onCancelRoute: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth(0.92f)
+            .shadow(14.dp, RoundedCornerShape(18.dp)),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xEB0F1422)),
+        border = BorderStroke(1.2.dp, Color(0x6600E5FF))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Tên điểm đến & Nút đóng
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Place,
+                        contentDescription = null,
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = route.destinationName,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                IconButton(
+                    onClick = onCancelRoute,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Cancel",
+                        tint = Color(0xFF90A4AE),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            // Thông số Khoảng cách + Thời gian + Nút Bắt đầu dẫn đường
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Khoảng cách
+                    Column {
+                        Text(
+                            text = "KHOẢNG CÁCH",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF78909C)
+                        )
+                        Text(
+                            text = route.distanceDisplay,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                    }
+
+                    // Thời gian ước tính
+                    Column {
+                        Text(
+                            text = "THỜI GIAN",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF78909C)
+                        )
+                        Text(
+                            text = route.durationDisplay,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF00E676)
+                        )
+                    }
+                }
+
+                // Nút Bắt đầu chỉ đường Google Maps
+                Button(
+                    onClick = onStartNavigation,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2979FF)
+                    ),
+                    modifier = Modifier.height(38.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Navigation,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Bắt đầu",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * HỘP THOẠI TÌM KIẾM ĐỊA ĐIỂM CHUẨN COCKPIT
+ */
+@Composable
+private fun DestinationSearchDialog(
+    userLat: Double,
+    userLng: Double,
+    searchResults: List<DestinationItem>,
+    isSearching: Boolean,
+    onSearch: (String) -> Unit,
+    onSelectDestination: (DestinationItem) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var queryText by remember { mutableStateOf("") }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .fillMaxHeight(0.85f)
+                .shadow(20.dp, RoundedCornerShape(22.dp)),
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF10131C)),
+            border = BorderStroke(1.dp, Color(0x332979FF))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Hàng tiêu đề & Ô nhập tìm kiếm
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = queryText,
+                        onValueChange = {
+                            queryText = it
+                            if (it.length >= 2) {
+                                onSearch(it)
+                            }
+                        },
+                        placeholder = {
+                            Text(
+                                "Nhập địa chỉ, tên đường, sân bay...",
+                                fontSize = 13.sp,
+                                color = Color(0xFF78909C)
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Search,
+                                contentDescription = null,
+                                tint = Color(0xFF2979FF)
+                            )
+                        },
+                        trailingIcon = {
+                            if (queryText.isNotEmpty()) {
+                                IconButton(onClick = { queryText = "" }) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = "Clear",
+                                        tint = Color(0xFF90A4AE)
+                                    )
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF2979FF),
+                            unfocusedBorderColor = Color(0x33FFFFFF),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = Color(0xFF2979FF)
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Color(0x26FFFFFF))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Close",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                // HÀNG PHÍM CHỌN NHANH (QUICK SHORTCUT CHIPS)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CarRoutingManager.QUICK_SEARCH_CHIPS.forEach { chipLabel ->
+                        val chipIcon = when {
+                            chipLabel.contains("xăng") -> Icons.Rounded.LocalGasStation
+                            chipLabel.contains("xe") -> Icons.Rounded.LocalParking
+                            chipLabel.contains("viện") -> Icons.Rounded.LocalHospital
+                            else -> Icons.Rounded.DirectionsCar
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .clickable {
+                                    queryText = chipLabel
+                                    onSearch(chipLabel)
+                                },
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0x1F2979FF)),
+                            border = BorderStroke(1.dp, Color(0x4D2979FF))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = chipIcon,
+                                    contentDescription = null,
+                                    tint = Color(0xFF64B5F6),
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = chipLabel,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFFE3F2FD)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // TRẠNG THÁI TÌM KIẾM & DANH SÁCH KẾT QUẢ
+                if (isSearching) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = Color(0xFF2979FF),
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                } else if (searchResults.isEmpty() && queryText.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Không tìm thấy địa điểm phù hợp",
+                            fontSize = 13.sp,
+                            color = Color(0xFF90A4AE)
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(searchResults) { item ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable { onSelectDestination(item) },
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0x1AFFFFFF)),
+                                border = BorderStroke(1.dp, Color(0x1AFFFFFF))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0x332979FF)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Place,
+                                            contentDescription = null,
+                                            tint = Color(0xFF64B5F6),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = item.name,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (item.subtitle.isNotEmpty()) {
+                                            Spacer(Modifier.height(2.dp))
+                                            Text(
+                                                text = item.subtitle,
+                                                fontSize = 11.sp,
+                                                color = Color(0xFF90A4AE),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                                        contentDescription = null,
+                                        tint = Color(0xFF64B5F6),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -954,9 +1552,7 @@ private fun CarMediaCard(
 }
 
 /**
- * ĐĨA THAN VINYL XOAY 360° KÈM BAO BÌA SANG TRỌNG:
- * - Khi nhạc phát, đĩa than xoay tròn liên tục theo tốc độ chuẩn analog.
- * - Các rãnh âm thanh đồng tâm với ánh kim loại phản chiếu chân thực.
+ * ĐĨA THAN VINYL XOAY 360° KÈM BAO BÌA SANG TRỌNG
  */
 @Composable
 private fun VinylTurntableArt(
@@ -1120,7 +1716,7 @@ private fun VinylTurntableArt(
 }
 
 /**
- * QUANG PHỔ ÂM THANH ĐA BĂNG TẦN (18 SPECTRUM BARS)
+ * QUANG PHỔ ÂM THANH ĐA BĂNG TẦN (20 SPECTRUM BARS)
  */
 @Composable
 private fun AudiophileSpectrumVisualizer(
@@ -1146,7 +1742,6 @@ private fun AudiophileSpectrumVisualizer(
     ) {
         val totalBars = 20
         for (i in 0 until totalBars) {
-            // Tính độ cao sóng dao động tự nhiên theo hàm sin
             val wave = if (isPlaying) {
                 val v = (sin((phase + i * 0.45f).toDouble()) * 0.5f + 0.5f).toFloat()
                 (6f + v * 16f).coerceIn(4f, 22f)
@@ -1199,17 +1794,12 @@ private fun MediaTrackProgressBar(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        // Thanh trượt tiến trình
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(14.dp)
-                .clickable {
-                    // Click để nhảy đoạn
-                },
+                .height(14.dp),
             contentAlignment = Alignment.CenterStart
         ) {
-            // Rãnh nền (Track background)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1218,7 +1808,6 @@ private fun MediaTrackProgressBar(
                     .background(Color(0x33FFFFFF))
             )
 
-            // Dải tiến trình đã phát (Played progress)
             Box(
                 modifier = Modifier
                     .fillMaxWidth(fraction = progress)
@@ -1231,7 +1820,6 @@ private fun MediaTrackProgressBar(
                     )
             )
 
-            // Nút phát sáng chỉ điểm (Thumb)
             Box(
                 modifier = Modifier
                     .fillMaxWidth(fraction = progress)
@@ -1248,7 +1836,6 @@ private fun MediaTrackProgressBar(
             }
         }
 
-        // Bộ đếm thời gian
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -1321,8 +1908,8 @@ private fun CarSideDock(
                         .background(Color(0x26FFFFFF))
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Navigation,
-                        contentDescription = "Maps",
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = "Search",
                         tint = Color(0xFF2979FF),
                         modifier = Modifier.size(22.dp)
                     )
@@ -1404,8 +1991,8 @@ private fun CarBottomDock(
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 IconButton(onClick = onOpenMaps) {
                     Icon(
-                        imageVector = Icons.Rounded.Navigation,
-                        contentDescription = "Maps",
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = "Search",
                         tint = Color(0xFF2979FF),
                         modifier = Modifier.size(24.dp)
                     )
@@ -1428,25 +2015,6 @@ private fun CarBottomDock(
                 }
             }
         }
-    }
-}
-
-private fun openGoogleMaps(context: Context) {
-    try {
-        val uri = Uri.parse("google.navigation:mode=d")
-        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-            setPackage("com.google.android.apps.maps")
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        context.startActivity(intent)
-    } catch (e: Exception) {
-        val webIntent = Intent(
-            Intent.ACTION_VIEW,
-            Uri.parse("https://www.google.com/maps")
-        ).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        context.startActivity(webIntent)
     }
 }
 
