@@ -44,10 +44,15 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
-    // MapLibre Native Android SDK & Resilient OkHttp Networking
-    implementation("org.maplibre.gl:android-sdk:11.7.0")
+    // Networking cho tìm kiếm địa điểm & lộ trình
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
+
+    // MapLibre Native Android SDK: bản đồ nền cho màn hình Android Auto trên điện thoại
+    implementation("org.maplibre.gl:android-sdk:11.7.0")
+
+    // Android Auto (Car App Library): màn hình điều hướng trên đầu xe
+    implementation("androidx.car.app:app:1.4.0")
 
     compileOnly(files("libs/api-82.jar"))
 

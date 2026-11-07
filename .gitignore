@@ -3,3 +3,8 @@ build/
 local.properties
 *.iml
 .idea/
+.kotlin/
+
+# Root test files
+/*.png
+/*.xml

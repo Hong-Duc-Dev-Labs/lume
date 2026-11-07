@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
@@ -19,7 +20,6 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LocationOn
-import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -35,8 +35,6 @@ import com.hongducdev.toolkit.data.LunarDisplayPolicy
 import com.hongducdev.toolkit.data.LunarSettings
 import com.hongducdev.toolkit.data.LunarSettingsRepository
 import com.hongducdev.toolkit.ui.components.DeviceHeroCard
-import com.hongducdev.toolkit.ui.components.FavoriteCarousel
-import com.hongducdev.toolkit.ui.components.FavoriteItem
 import com.hongducdev.toolkit.ui.components.PullTitleHeader
 import com.hongducdev.toolkit.ui.components.rememberPullTitleHeaderState
 import com.hongducdev.toolkit.ui.modifiers.scrollMotionBlur
@@ -51,7 +49,7 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     onOpenLunar: () -> Unit,
-    onOpenCarDashboard: () -> Unit,
+    onOpenAndroidAuto: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -73,40 +71,8 @@ fun HomeScreen(
             android.Manifest.permission.ACCESS_FINE_LOCATION,
         ) == PackageManager.PERMISSION_GRANTED
 
-    val hasNotificationPermission = isNotificationServiceEnabled(context)
-
     val headerState = rememberPullTitleHeaderState()
     val lazyListState = rememberLazyListState()
-
-    val favoriteItems =
-        remember(onOpenLunar, onOpenCarDashboard, wallpaperActive) {
-            listOf(
-                FavoriteItem(
-                    id = "lunar",
-                    title = "Lịch âm",
-                    icon = Icons.Rounded.CalendarMonth,
-                    onClick = onOpenLunar,
-                ),
-                FavoriteItem(
-                    id = "car",
-                    title = "Car Dashboard",
-                    icon = Icons.Rounded.DirectionsCar,
-                    onClick = onOpenCarDashboard,
-                ),
-                FavoriteItem(
-                    id = "wallpaper",
-                    title = "Live Wallpaper",
-                    icon = Icons.Rounded.Image,
-                    onClick = { openWallpaperChooser(context) },
-                ),
-                FavoriteItem(
-                    id = "gps",
-                    title = "Định vị HUD",
-                    icon = Icons.Rounded.LocationOn,
-                    onClick = onOpenCarDashboard,
-                ),
-            )
-        }
 
     LazyColumn(
         state = lazyListState,
@@ -137,11 +103,6 @@ fun HomeScreen(
             DeviceHeroCard()
         }
 
-        // Horizontal Multi-Browse Favorites Carousel
-        item {
-            FavoriteCarousel(items = favoriteItems)
-        }
-
         // Main Features Container
         item {
             RoundedCardContainer(title = "Tính năng chính") {
@@ -160,12 +121,13 @@ fun HomeScreen(
                     onClick = onOpenLunar,
                 )
                 FeatureCard(
-                    title = "Chế độ lái xe (Car Dashboard)",
-                    description = "Bản đồ MapLibre Native, HUD đo tốc độ GPS & điều khiển Media",
+                    title = "Android Auto",
+                    description = "Chạy màn hình Android Auto ngay trên điện thoại: HUD tốc độ, cảnh báo camera & tìm đường",
                     icon = Icons.Rounded.DirectionsCar,
                     isEnabled = hasLocationPermission,
-                    onToggle = { onOpenCarDashboard() },
-                    onClick = onOpenCarDashboard,
+                    onToggle = { onOpenAndroidAuto() },
+                    onClick = onOpenAndroidAuto,
+                    showToggle = false,
                 )
             }
         }
@@ -174,6 +136,13 @@ fun HomeScreen(
         item {
             RoundedCardContainer(title = "Hệ thống & Quyền hạn") {
                 SettingsItem(
+                    title = "Cài đặt Android Auto",
+                    description = "Bật chế độ nhà phát triển để app hiện trên xe",
+                    icon = Icons.Rounded.DirectionsCar,
+                    valueText = "Mở",
+                    onClick = { openAndroidAuto(context) },
+                )
+                SettingsItem(
                     title = "Hình nền động Live Wallpaper",
                     description = "Mở trình chọn Live Wallpaper của Android",
                     icon = Icons.Rounded.Image,
@@ -181,21 +150,8 @@ fun HomeScreen(
                     onClick = { openWallpaperChooser(context) },
                 )
                 SettingsItem(
-                    title = "Truy cập thông báo nghe nhạc",
-                    description = "Cần thiết để điều khiển MediaSession trong Car Dashboard",
-                    icon = Icons.Rounded.Notifications,
-                    valueText = if (hasNotificationPermission) "Đã cấp" else "Chưa cấp",
-                    onClick = {
-                        val intent =
-                            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                        context.startActivity(intent)
-                    },
-                )
-                SettingsItem(
                     title = "Định vị GPS chính xác",
-                    description = "Theo dõi vị trí xe và đo tốc độ km/h thời gian thực",
+                    description = "Cần thiết để Android Auto đo tốc độ km/h thời gian thực",
                     icon = Icons.Rounded.LocationOn,
                     valueText = if (hasLocationPermission) "Đã cấp" else "Chưa cấp",
                     showChevron = false,
@@ -209,16 +165,29 @@ fun HomeScreen(
     }
 }
 
-private fun isNotificationServiceEnabled(context: Context): Boolean {
-    val pkgName = context.packageName
-    val flat =
-        Settings.Secure.getString(
-            context.contentResolver,
-            "enabled_notification_listeners",
-        ) ?: return false
-    return flat.split(":").any {
-        val cn = ComponentName.unflattenFromString(it)
-        cn != null && cn.packageName == pkgName
+/** Mở cài đặt Android Auto (app này không có launcher); nếu chưa cài thì mở cài đặt của app. */
+private fun openAndroidAuto(context: Context) {
+    val intent =
+        Intent("com.google.android.projection.gearhead.SETTINGS")
+            .setPackage(ANDROID_AUTO_PACKAGE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(intent)
+    } catch (_: Exception) {
+        openAppSettings(context)
+    }
+}
+
+private const val ANDROID_AUTO_PACKAGE = "com.google.android.projection.gearhead"
+
+private fun openAppSettings(context: Context) {
+    val intent =
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    try {
+        context.startActivity(intent)
+    } catch (_: Exception) {
     }
 }
 

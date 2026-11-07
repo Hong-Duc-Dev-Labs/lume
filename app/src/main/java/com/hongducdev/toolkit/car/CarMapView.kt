@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,20 +97,20 @@ fun CarMapView(
     modifier: Modifier = Modifier,
     isDarkMode: Boolean = false,
     followCar: Boolean = true,
+    isNavigating: Boolean = false,
     routeGeoJson: String? = null,
     destinationLatLng: LatLng? = null,
+    recenterTrigger: Int = 0,
     onFollowCarChanged: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val currentOnFollowCarChanged by rememberUpdatedState(onFollowCarChanged)
 
     var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
     var isStyleLoaded by remember { mutableStateOf(false) }
-
-    val animatedBearing by animateFloatAsState(
-        targetValue = locationState.bearing,
-        label = "animatedBearing"
-    )
+    var isFallbackActive by remember { mutableStateOf(false) }
+    var isMapDestroyed by remember { mutableStateOf(false) }
 
     fun updateRouteOnMap(map: MapLibreMap, geoJson: String?) {
         val style = map.style ?: return
@@ -152,10 +153,12 @@ fun CarMapView(
     }
 
     fun applyMapStyle(map: MapLibreMap, dark: Boolean) {
+        isStyleLoaded = false
         val styleUrl = if (dark) OFM_DARK_STYLE_URL else OFM_LIBERTY_STYLE_URL
         Log.d(TAG, "Applying style: $styleUrl")
         map.setStyle(Style.Builder().fromUri(styleUrl)) { _ ->
             isStyleLoaded = true
+            isFallbackActive = false
             Log.d(TAG, "Style loaded successfully from $styleUrl")
             // Khôi phục route layer nếu đang có route
             if (!routeGeoJson.isNullOrEmpty()) {
@@ -171,6 +174,8 @@ fun CarMapView(
             onCreate(null)
 
             addOnDidFailLoadingMapListener { errorMessage ->
+                if (isFallbackActive) return@addOnDidFailLoadingMapListener
+                isFallbackActive = true
                 Log.w(TAG, "Map failed loading: $errorMessage, trying fallback OSM raster style")
                 mapLibreMap?.setStyle(Style.Builder().fromJson(OSM_RASTER_STYLE_JSON)) {
                     isStyleLoaded = true
@@ -194,20 +199,18 @@ fun CarMapView(
 
                 val initialPos = CameraPosition.Builder()
                     .target(LatLng(locationState.latitude, locationState.longitude))
-                    .zoom(16.0)
-                    .tilt(35.0)
+                    .zoom(if (isNavigating) 17.5 else 16.0)
+                    .tilt(if (isNavigating) 50.0 else 35.0)
                     .bearing(locationState.bearing.toDouble())
                     .build()
                 map.cameraPosition = initialPos
 
-                // Tạm dừng auto-follow khi tài xế vuốt bản đồ
-                map.addOnMoveListener(object : MapLibreMap.OnMoveListener {
-                    override fun onMoveBegin(detector: org.maplibre.android.gestures.MoveGestureDetector) {
-                        onFollowCarChanged(false)
+                // Bắt TOÀN BỘ cử chỉ của người dùng (kéo, zoom 2 ngón, xoay 2 ngón) để tạm dừng auto-follow
+                map.addOnCameraMoveStartedListener { reason ->
+                    if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+                        currentOnFollowCarChanged(false)
                     }
-                    override fun onMove(detector: org.maplibre.android.gestures.MoveGestureDetector) {}
-                    override fun onMoveEnd(detector: org.maplibre.android.gestures.MoveGestureDetector) {}
-                })
+                }
             }
         }
     }
@@ -228,24 +231,24 @@ fun CarMapView(
         }
     }
 
-    // Tự động thu phóng để thấy toàn bộ lộ trình khi có điểm đến mới
+    // Tự động thu phóng để thấy toàn bộ lộ trình khi có điểm đến mới (khi chưa bấm Bắt đầu dẫn đường)
     LaunchedEffect(destinationLatLng, routeGeoJson) {
         val map = mapLibreMap
-        if (map != null && isStyleLoaded && destinationLatLng != null && !routeGeoJson.isNullOrEmpty()) {
+        if (map != null && isStyleLoaded && destinationLatLng != null && !routeGeoJson.isNullOrEmpty() && !isNavigating) {
             try {
                 val bounds = LatLngBounds.Builder()
                     .include(LatLng(locationState.latitude, locationState.longitude))
                     .include(destinationLatLng)
                     .build()
                 map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 120), 1000)
-                onFollowCarChanged(false) // Tạm nhường camera cho toàn bộ lộ trình
+                currentOnFollowCarChanged(false) // Tạm nhường camera cho toàn bộ lộ trình
             } catch (e: Exception) {
                 Log.e(TAG, "Failed animating camera to route bounds", e)
             }
         }
     }
 
-    // Quản lý Lifecycle đồng bộ ngay với trạng thái hiện tại của Activity
+    // Quản lý Lifecycle đồng bộ an toàn: ngăn chặn double destroy gây SIGSEGV
     DisposableEffect(lifecycleOwner, mapView) {
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
             mapView.onStart()
@@ -255,35 +258,44 @@ fun CarMapView(
         }
 
         val observer = LifecycleEventObserver { _, event ->
+            if (isMapDestroyed) return@LifecycleEventObserver
             when (event) {
                 Lifecycle.Event.ON_START -> mapView.onStart()
                 Lifecycle.Event.ON_RESUME -> mapView.onResume()
                 Lifecycle.Event.ON_PAUSE -> mapView.onPause()
                 Lifecycle.Event.ON_STOP -> mapView.onStop()
-                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                Lifecycle.Event.ON_DESTROY -> {
+                    isMapDestroyed = true
+                    mapView.onDestroy()
+                    mapLibreMap = null
+                }
                 else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            mapView.onPause()
-            mapView.onStop()
-            mapView.onDestroy()
+            if (!isMapDestroyed) {
+                isMapDestroyed = true
+                mapView.onPause()
+                mapView.onStop()
+                mapView.onDestroy()
+                mapLibreMap = null
+            }
         }
     }
 
-    // Tự động bám theo tọa độ và góc xoay của xe
-    LaunchedEffect(locationState.latitude, locationState.longitude, locationState.bearing, followCar, isStyleLoaded) {
+    // Tự động bám theo tọa độ và góc xoay của xe (hoặc cưỡng chế quay lại vị trí xe khi bấm Định vị xe)
+    LaunchedEffect(locationState.latitude, locationState.longitude, locationState.bearing, followCar, isStyleLoaded, isNavigating, recenterTrigger) {
         val map = mapLibreMap
         if (map != null && isStyleLoaded && followCar) {
             val targetPos = CameraPosition.Builder()
                 .target(LatLng(locationState.latitude, locationState.longitude))
-                .zoom(16.0)
-                .tilt(35.0)
+                .zoom(if (isNavigating) 17.5 else 16.0)
+                .tilt(if (isNavigating) 50.0 else 35.0)
                 .bearing(locationState.bearing.toDouble())
                 .build()
-            map.animateCamera(CameraUpdateFactory.newCameraPosition(targetPos), 600)
+            map.animateCamera(CameraUpdateFactory.newCameraPosition(targetPos), if (isNavigating) 500 else 600)
         }
     }
 
@@ -293,46 +305,38 @@ fun CarMapView(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Con trỏ xe điều hướng (Navigation Car Puck) hiển thị giữa màn hình khi followCar bật
+        // Con trỏ xe điều hướng (Navigation Car Puck) hiển thị giữa màn hình khi followCar bật.
+        // Vì camera MapLibre đã xoay theo bearing của xe nên con trỏ luôn chỉ thẳng về phía trước màn hình (0f).
         if (followCar && isStyleLoaded) {
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .size(44.dp)
                     .graphicsLayer {
-                        rotationZ = animatedBearing
+                        rotationZ = 0f
                     },
                 contentAlignment = Alignment.Center
             ) {
                 Canvas(modifier = Modifier.size(34.dp)) {
                     val path = Path().apply {
-                        moveTo(size.width / 2f, 0f)
-                        lineTo(size.width, size.height)
-                        lineTo(size.width / 2f, size.height * 0.75f)
-                        lineTo(0f, size.height)
+                        moveTo(size.width / 2f, 2f)
+                        lineTo(size.width - 4f, size.height - 4f)
+                        lineTo(size.width / 2f, size.height * 0.72f)
+                        lineTo(4f, size.height - 4f)
                         close()
                     }
-                    drawPath(path, Color(0xFF1E88E5))
-                    drawPath(path, Color.White, style = Stroke(width = 2.5.dp.toPx()))
+                    // Viền đậm tăng độ tương phản trên mọi loại địa hình bản đồ
+                    drawPath(
+                        path = path,
+                        color = Color.White,
+                        style = Stroke(width = 4.dp.toPx())
+                    )
+                    // Màu xanh Neon dẫn đường nổi bật
+                    drawPath(
+                        path = path,
+                        color = Color(0xFF00E5FF)
+                    )
                 }
-            }
-        }
-
-        // Chỉ báo GPS mất tín hiệu hoặc đang chờ tọa độ thực tế
-        if (!locationState.hasGpsFix) {
-            Card(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 16.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xCC000000))
-            ) {
-                Text(
-                    text = "Đang tìm tín hiệu vệ tinh GPS...",
-                    fontSize = 12.sp,
-                    color = Color(0xFFFFB74D),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
             }
         }
     }
