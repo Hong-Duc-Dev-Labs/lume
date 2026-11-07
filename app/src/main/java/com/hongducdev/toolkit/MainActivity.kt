@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
@@ -39,6 +40,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
+import com.hongducdev.toolkit.ui.modifiers.progressiveBlur
+import com.hongducdev.toolkit.ui.modifiers.scrollMotionBlur
 import com.hongducdev.toolkit.car.CarDashboardScreen
 import com.hongducdev.toolkit.car.CarMapHttpConfig
 import com.hongducdev.toolkit.ui.LockscreenLunarScreen
@@ -168,6 +173,11 @@ private fun ToolkitApp(
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val contentPadding = PaddingValues(top = topInset)
 
+    val density = LocalDensity.current
+    val topBlurPx = with(density) { (topInset + 28.dp).toPx() }
+    val bottomBlurPx =
+        with(density) { (WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 128.dp).toPx() }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {},
@@ -179,7 +189,11 @@ private fun ToolkitApp(
             // HorizontalPager allowing smooth gestures between tabs
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier.fillMaxSize(),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .progressiveBlur(topBlurPx, bottomBlurPx)
+                        .scrollMotionBlur(pagerState),
             ) { page ->
                 when (mainTabs[page]) {
                     NavTab.HOME -> {

@@ -39,6 +39,7 @@ import com.hongducdev.toolkit.ui.components.FavoriteCarousel
 import com.hongducdev.toolkit.ui.components.FavoriteItem
 import com.hongducdev.toolkit.ui.components.PullTitleHeader
 import com.hongducdev.toolkit.ui.components.rememberPullTitleHeaderState
+import com.hongducdev.toolkit.ui.modifiers.scrollMotionBlur
 import com.hongducdev.toolkit.ui.core.cards.FeatureCard
 import com.hongducdev.toolkit.ui.core.cards.SettingsItem
 import com.hongducdev.toolkit.ui.core.containers.RoundedCardContainer
@@ -112,7 +113,8 @@ fun HomeScreen(
         modifier =
             modifier
                 .fillMaxSize()
-                .nestedScroll(headerState.nestedScrollConnection),
+                .nestedScroll(headerState.nestedScrollConnection)
+                .scrollMotionBlur(lazyListState),
         contentPadding =
             PaddingValues(
                 top = contentPadding.calculateTopPadding(),

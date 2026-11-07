@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.hongducdev.toolkit.ui.components.PullTitleHeader
 import com.hongducdev.toolkit.ui.components.rememberPullTitleHeaderState
+import com.hongducdev.toolkit.ui.modifiers.scrollMotionBlur
 import com.hongducdev.toolkit.ui.core.cards.HeroBannerCard
 import com.hongducdev.toolkit.ui.core.cards.SettingsItem
 import com.hongducdev.toolkit.ui.core.containers.RoundedCardContainer
@@ -42,7 +43,8 @@ fun AboutScreen(
         modifier =
             modifier
                 .fillMaxSize()
-                .nestedScroll(headerState.nestedScrollConnection),
+                .nestedScroll(headerState.nestedScrollConnection)
+                .scrollMotionBlur(lazyListState),
         contentPadding =
             PaddingValues(
                 top = contentPadding.calculateTopPadding(),
