@@ -126,7 +126,7 @@ fun HomeScreen(
     ) {
         item {
             PullTitleHeader(
-                title = "Essentials",
+                title = "Trang chủ",
                 caption = "Galaxy S10 5G • Android 16 (AOSP)",
                 state = headerState,
             )

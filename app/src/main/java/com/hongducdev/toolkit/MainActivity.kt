@@ -90,7 +90,7 @@ enum class NavTab(
     val title: String,
     val icon: ImageVector,
 ) {
-    HOME("Essentials", Icons.Rounded.Home),
+    HOME("Trang chủ", Icons.Rounded.Home),
     LUNAR("Lịch âm", Icons.Rounded.CalendarMonth),
     ABOUT("About", Icons.Rounded.Info),
     CAR("Car Mode", Icons.Rounded.DirectionsCar),
