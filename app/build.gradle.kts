@@ -54,6 +54,20 @@ dependencies {
     // Android Auto (Car App Library): màn hình điều hướng trên đầu xe
     implementation("androidx.car.app:app:1.4.0")
 
+    // Quét mã QR & Barcode (CameraX + ML Kit độc lập offline & Google Play Services Code Scanner)
+    val cameraxVersion = "1.4.1"
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    implementation("com.google.guava:guava:33.3.1-android")
+
+    // DIY Automation: JSON persistence & drag-and-drop reorderable action sequence
+    implementation("com.google.code.gson:gson:2.11.0")
+    implementation("sh.calvin.reorderable:reorderable:2.4.1")
+    implementation("org.jetbrains.kotlin:kotlin-reflect")
+
     compileOnly(files("libs/api-82.jar"))
 
     testImplementation("junit:junit:4.13.2")

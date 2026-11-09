@@ -16,31 +16,43 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoMode
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.QrCodeScanner
+import androidx.compose.material.icons.rounded.TextFields
+import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.hongducdev.toolkit.data.DisplayMode
+import com.hongducdev.toolkit.data.FontSettings
+import com.hongducdev.toolkit.data.FontSettingsRepository
 import com.hongducdev.toolkit.data.LunarDisplayPolicy
 import com.hongducdev.toolkit.data.LunarSettings
 import com.hongducdev.toolkit.data.LunarSettingsRepository
+import com.hongducdev.toolkit.data.ScreenTimeoutSettings
+import com.hongducdev.toolkit.data.ScreenTimeoutSettingsRepository
 import com.hongducdev.toolkit.ui.components.DeviceHeroCard
 import com.hongducdev.toolkit.ui.components.PullTitleHeader
+import com.hongducdev.toolkit.ui.components.TimeoutPresetPickerSheet
 import com.hongducdev.toolkit.ui.components.rememberPullTitleHeaderState
-import com.hongducdev.toolkit.ui.modifiers.scrollMotionBlur
 import com.hongducdev.toolkit.ui.core.cards.FeatureCard
 import com.hongducdev.toolkit.ui.core.cards.SettingsItem
 import com.hongducdev.toolkit.ui.core.containers.RoundedCardContainer
+import com.hongducdev.toolkit.ui.modifiers.scrollMotionBlur
 import com.hongducdev.toolkit.wallpaper.LunarWallpaperService
 import kotlinx.coroutines.launch
 
@@ -49,12 +61,23 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     onOpenLunar: () -> Unit,
-    onOpenAndroidAuto: () -> Unit,
+    onOpenDiy: () -> Unit,
+    onOpenCarDashboard: () -> Unit,
+    onOpenFontSettings: () -> Unit,
+    onOpenQrScanner: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val repository = remember { LunarSettingsRepository(context.applicationContext) }
     val settings by repository.settings.collectAsState(initial = LunarSettings())
+
+    val fontRepository = remember { FontSettingsRepository(context.applicationContext) }
+    val fontSettings by fontRepository.settings.collectAsState(initial = FontSettings())
+
+    val screenTimeoutRepository = remember { ScreenTimeoutSettingsRepository(context.applicationContext) }
+    val screenTimeoutSettings by screenTimeoutRepository.settings.collectAsState(initial = ScreenTimeoutSettings())
+    val showLockscreenTimeoutPicker = remember { mutableStateOf(false) }
+    val showScreenTimeoutPicker = remember { mutableStateOf(false) }
 
     val now = System.currentTimeMillis()
     val hookActive =
@@ -107,27 +130,69 @@ fun HomeScreen(
         item {
             RoundedCardContainer(title = "Tính năng chính") {
                 FeatureCard(
-                    title = "Lịch âm màn hình khóa",
-                    description = if (hookActive) "Root Hook: Vẽ trực tiếp lên SystemUI" else "Tự động hiển thị trên hình nền Lockscreen",
+                    title = "Lịch âm Việt Nam",
+                    description = "Xem lịch âm cả tháng, tra cứu ngày tốt & hiển thị trên màn hình khóa",
                     icon = Icons.Rounded.CalendarMonth,
-                    isEnabled = settings.displayMode != DisplayMode.DATE_LINE_ONLY,
-                    onToggle = { enabled ->
-                        scope.launch {
-                            repository.update {
-                                it.copy(displayMode = if (enabled) DisplayMode.AUTO else DisplayMode.DATE_LINE_ONLY)
-                            }
-                        }
-                    },
+                    isEnabled = true,
+                    onToggle = { onOpenLunar() },
                     onClick = onOpenLunar,
+                    showToggle = false,
                 )
                 FeatureCard(
-                    title = "Android Auto",
-                    description = "Chạy màn hình Android Auto ngay trên điện thoại: HUD tốc độ, cảnh báo camera & tìm đường",
+                    title = "Tự động hóa (DIY Rules)",
+                    description = "Tạo các quy tắc tự động hóa theo sự kiện, sạc, pin, kết nối và ứng dụng",
+                    icon = Icons.Rounded.AutoMode,
+                    isEnabled = true,
+                    onToggle = { onOpenDiy() },
+                    onClick = onOpenDiy,
+                    showToggle = false,
+                )
+                FeatureCard(
+                    title = "Chế độ lái xe (Car Dashboard)",
+                    description = "Bản đồ MapLibre, HUD đo tốc độ GPS, cảnh báo camera & tìm đường",
                     icon = Icons.Rounded.DirectionsCar,
                     isEnabled = hasLocationPermission,
-                    onToggle = { onOpenAndroidAuto() },
-                    onClick = onOpenAndroidAuto,
+                    onToggle = { onOpenCarDashboard() },
+                    onClick = onOpenCarDashboard,
                     showToggle = false,
+                )
+                FeatureCard(
+                    title = "Quét mã QR",
+                    description = "Quét camera trực tiếp hoặc chọn ảnh từ thư viện (URL, Wi-Fi, văn bản)",
+                    icon = Icons.Rounded.QrCodeScanner,
+                    isEnabled = true,
+                    onToggle = { onOpenQrScanner() },
+                    onClick = onOpenQrScanner,
+                    showToggle = false,
+                )
+                FeatureCard(
+                    title = "Font UI hệ thống",
+                    description = "Chọn file font .ttf / .otf tùy chỉnh làm phông chữ giao diện System UI",
+                    icon = Icons.Rounded.TextFields,
+                    isEnabled = fontSettings.isEnabled && fontSettings.fontName.isNotBlank(),
+                    onToggle = { onOpenFontSettings() },
+                    onClick = onOpenFontSettings,
+                    showToggle = false,
+                )
+            }
+        }
+
+        // Screen & Lockscreen Timeout Container
+        item {
+            RoundedCardContainer(title = "Màn hình & Thời gian sáng") {
+                SettingsItem(
+                    title = "Thời gian sáng màn hình chính",
+                    description = "Thời gian duy trì sáng khi đang mở khóa hoặc luôn sáng",
+                    icon = Icons.Rounded.Timer,
+                    valueText = screenTimeoutSettings.screenTimeoutLabel,
+                    onClick = { showScreenTimeoutPicker.value = true },
+                )
+                SettingsItem(
+                    title = "Thời gian sáng màn hình khóa",
+                    description = "Thời gian màn hình khóa duy trì sáng trước khi tắt",
+                    icon = Icons.Rounded.Lock,
+                    valueText = screenTimeoutSettings.lockscreenTimeoutLabel,
+                    onClick = { showLockscreenTimeoutPicker.value = true },
                 )
             }
         }
@@ -135,13 +200,6 @@ fun HomeScreen(
         // System Settings & Permissions Container
         item {
             RoundedCardContainer(title = "Hệ thống & Quyền hạn") {
-                SettingsItem(
-                    title = "Cài đặt Android Auto",
-                    description = "Bật chế độ nhà phát triển để app hiện trên xe",
-                    icon = Icons.Rounded.DirectionsCar,
-                    valueText = "Mở",
-                    onClick = { openAndroidAuto(context) },
-                )
                 SettingsItem(
                     title = "Hình nền động Live Wallpaper",
                     description = "Mở trình chọn Live Wallpaper của Android",
@@ -151,7 +209,7 @@ fun HomeScreen(
                 )
                 SettingsItem(
                     title = "Định vị GPS chính xác",
-                    description = "Cần thiết để Android Auto đo tốc độ km/h thời gian thực",
+                    description = "Cần thiết để đo tốc độ km/h và dẫn đường thời gian thực",
                     icon = Icons.Rounded.LocationOn,
                     valueText = if (hasLocationPermission) "Đã cấp" else "Chưa cấp",
                     showChevron = false,
@@ -163,31 +221,31 @@ fun HomeScreen(
             Spacer(Modifier.height(16.dp))
         }
     }
-}
 
-/** Mở cài đặt Android Auto (app này không có launcher); nếu chưa cài thì mở cài đặt của app. */
-private fun openAndroidAuto(context: Context) {
-    val intent =
-        Intent("com.google.android.projection.gearhead.SETTINGS")
-            .setPackage(ANDROID_AUTO_PACKAGE)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    try {
-        context.startActivity(intent)
-    } catch (_: Exception) {
-        openAppSettings(context)
+    if (showLockscreenTimeoutPicker.value) {
+        TimeoutPresetPickerSheet(
+            title = "Thời gian sáng màn hình khóa",
+            selectedIndex = screenTimeoutSettings.lockscreenPresetIndex,
+            onSelectIndex = { index ->
+                scope.launch {
+                    screenTimeoutRepository.update { it.copy(lockscreenPresetIndex = index) }
+                }
+            },
+            onDismiss = { showLockscreenTimeoutPicker.value = false },
+        )
     }
-}
 
-private const val ANDROID_AUTO_PACKAGE = "com.google.android.projection.gearhead"
-
-private fun openAppSettings(context: Context) {
-    val intent =
-        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-    try {
-        context.startActivity(intent)
-    } catch (_: Exception) {
+    if (showScreenTimeoutPicker.value) {
+        TimeoutPresetPickerSheet(
+            title = "Thời gian sáng màn hình chính",
+            selectedIndex = screenTimeoutSettings.screenPresetIndex,
+            onSelectIndex = { index ->
+                scope.launch {
+                    screenTimeoutRepository.update { it.copy(screenPresetIndex = index) }
+                }
+            },
+            onDismiss = { showScreenTimeoutPicker.value = false },
+        )
     }
 }
 

@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoMode
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Info
@@ -38,17 +40,22 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import com.hongducdev.toolkit.ui.modifiers.progressiveBlur
-import com.hongducdev.toolkit.ui.modifiers.scrollMotionBlur
 import com.hongducdev.toolkit.car.CarMapHttpConfig
 import com.hongducdev.toolkit.car.auto.AndroidAutoPhoneScreen
+import com.hongducdev.toolkit.domain.diy.DIYRepository
+import com.hongducdev.toolkit.services.automation.AutomationManager
 import com.hongducdev.toolkit.ui.LockscreenLunarScreen
 import com.hongducdev.toolkit.ui.components.EssentialsFloatingToolbar
 import com.hongducdev.toolkit.ui.components.ToolbarItem
+import com.hongducdev.toolkit.ui.modifiers.progressiveBlur
+import com.hongducdev.toolkit.ui.modifiers.scrollMotionBlur
+import com.hongducdev.toolkit.ui.qr.QrScannerScreen
 import com.hongducdev.toolkit.ui.screens.AboutScreen
+import com.hongducdev.toolkit.ui.screens.DIYScreen
+import com.hongducdev.toolkit.ui.screens.FontSettingsScreen
 import com.hongducdev.toolkit.ui.screens.HomeScreen
 import com.hongducdev.toolkit.ui.theme.ToolkitTheme
 import com.hongducdev.toolkit.utils.HapticUtil
@@ -66,8 +73,13 @@ class MainActivity : ComponentActivity() {
         CarMapHttpConfig.initialize(applicationContext)
         MapLibre.setConnected(true)
 
+        // Khởi tạo hệ thống tự động hóa DIY
+        DIYRepository.init(applicationContext)
+        AutomationManager.init(applicationContext)
+
         val startTab =
             when (intent?.getStringExtra("screen")) {
+                "diy" -> NavTab.DIY
                 "lunar" -> NavTab.LUNAR
                 else -> NavTab.HOME
             }
@@ -89,15 +101,14 @@ enum class NavTab(
     val icon: ImageVector,
 ) {
     HOME("Trang chủ", Icons.Rounded.Home),
+    DIY("DIY", Icons.Rounded.AutoMode),
     LUNAR("Lịch âm", Icons.Rounded.CalendarMonth),
     ABOUT("About", Icons.Rounded.Info),
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ToolkitApp(
-    initialTab: NavTab = NavTab.HOME,
-) {
+private fun ToolkitApp(initialTab: NavTab = NavTab.HOME) {
     val view = LocalView.current
     val scope = rememberCoroutineScope()
 
@@ -107,7 +118,20 @@ private fun ToolkitApp(
         return
     }
 
-    val mainTabs = remember { listOf(NavTab.HOME, NavTab.LUNAR, NavTab.ABOUT) }
+    var fontSettingsOpen by rememberSaveable { mutableStateOf(false) }
+    if (fontSettingsOpen) {
+        FontSettingsScreen(onBack = { fontSettingsOpen = false })
+        return
+    }
+
+    var qrScannerOpen by rememberSaveable { mutableStateOf(false) }
+    if (qrScannerOpen) {
+        QrScannerScreen(onExit = { qrScannerOpen = false })
+        return
+    }
+
+    var diyNewRequested by rememberSaveable { mutableStateOf(false) }
+    val mainTabs = remember { listOf(NavTab.HOME, NavTab.DIY, NavTab.LUNAR, NavTab.ABOUT) }
     val initialPage =
         remember {
             val idx = mainTabs.indexOf(initialTab)
@@ -195,7 +219,23 @@ private fun ToolkitApp(
                                     if (lunarIdx >= 0) pagerState.animateScrollToPage(lunarIdx)
                                 }
                             },
-                            onOpenAndroidAuto = { androidAutoOpen = true },
+                            onOpenDiy = {
+                                scope.launch {
+                                    val diyIdx = mainTabs.indexOf(NavTab.DIY)
+                                    if (diyIdx >= 0) pagerState.animateScrollToPage(diyIdx)
+                                }
+                            },
+                            onOpenCarDashboard = { androidAutoOpen = true },
+                            onOpenFontSettings = { fontSettingsOpen = true },
+                            onOpenQrScanner = { qrScannerOpen = true },
+                        )
+                    }
+
+                    NavTab.DIY -> {
+                        DIYScreen(
+                            contentPadding = contentPadding,
+                            newSheetRequested = diyNewRequested,
+                            onNewSheetHandled = { diyNewRequested = false },
                         )
                     }
 
@@ -210,21 +250,20 @@ private fun ToolkitApp(
                             contentPadding = contentPadding,
                         )
                     }
-
                 }
             }
 
             // Material 3 Expressive Horizontal Floating Toolbar
             EssentialsFloatingToolbar(
                 items =
-                    listOf(
+                    mainTabs.mapIndexed { index, tab ->
                         ToolbarItem(
-                            icon = NavTab.HOME.icon,
-                            label = NavTab.HOME.title,
+                            icon = tab.icon,
+                            label = tab.title,
                             onClick = {
                                 scope.launch {
                                     pagerState.animateScrollToPage(
-                                        0,
+                                        index,
                                         animationSpec =
                                             spring(
                                                 dampingRatio = Spring.DampingRatioLowBouncy,
@@ -233,42 +272,17 @@ private fun ToolkitApp(
                                     )
                                 }
                             },
-                        ),
-                        ToolbarItem(
-                            icon = NavTab.LUNAR.icon,
-                            label = NavTab.LUNAR.title,
-                            onClick = {
-                                scope.launch {
-                                    pagerState.animateScrollToPage(
-                                        1,
-                                        animationSpec =
-                                            spring(
-                                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                                stiffness = Spring.StiffnessMediumLow,
-                                            ),
-                                    )
-                                }
-                            },
-                        ),
-                        ToolbarItem(
-                            icon = NavTab.ABOUT.icon,
-                            label = NavTab.ABOUT.title,
-                            onClick = {
-                                scope.launch {
-                                    pagerState.animateScrollToPage(
-                                        2,
-                                        animationSpec =
-                                            spring(
-                                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                                stiffness = Spring.StiffnessMediumLow,
-                                            ),
-                                    )
-                                }
-                            },
-                        ),
-                    ),
+                        )
+                    },
                 selectedIndex =
                     pagerState.currentPage.coerceIn(0, mainTabs.lastIndex),
+                fabAction =
+                    if (mainTabs.getOrNull(pagerState.currentPage) == NavTab.DIY) {
+                        { diyNewRequested = true }
+                    } else {
+                        null
+                    },
+                fabIcon = Icons.Rounded.Add,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
