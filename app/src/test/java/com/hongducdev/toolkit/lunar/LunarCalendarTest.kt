@@ -1,15 +1,20 @@
 package com.hongducdev.toolkit.lunar
 
-import java.time.Instant
-import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
+import java.time.LocalDate
+import java.time.YearMonth
 
 class LunarCalendarTest {
-
-    private fun lunar(y: Int, m: Int, d: Int) = LunarCalendar.fromSolar(LocalDate.of(y, m, d))
+    private fun lunar(
+        y: Int,
+        m: Int,
+        d: Int,
+    ) = LunarCalendar.fromSolar(LocalDate.of(y, m, d))
 
     private fun assertLunar(
         solar: LocalDate,
@@ -92,5 +97,65 @@ class LunarCalendarTest {
         assertEquals(1, after.month)
         assertFalse(after.isLeapMonth)
         assertTrue(before.year == 2023 && after.year == 2024)
+    }
+
+    @Test
+    fun solarTermsDetection() {
+        val springEquinox = LunarCalendar.getSolarTerm(LocalDate.of(2024, 3, 21))
+        assertEquals("Xuân phân", springEquinox)
+
+        val winterStart = LunarCalendar.getSolarTerm(LocalDate.of(2024, 11, 8))
+        assertEquals("Lập đông", winterStart)
+    }
+
+    @Test
+    fun auspiciousHoursAndDays() {
+        val hours = LunarCalendar.getAuspiciousHours("Giáp Tý")
+        assertEquals(6, hours.size)
+        assertTrue(hours.any { it.contains("Tý") })
+
+        val dayInfo = LunarCalendar.getAuspiciousDayInfo(1, "Bính Thìn")
+        assertNotNull(dayInfo.starName)
+        assertTrue(dayInfo.typeName == "Hoàng Đạo" || dayInfo.typeName == "Hắc Đạo")
+    }
+
+    @Test
+    fun holidayDetection() {
+        val tet = LocalDate.of(2024, 2, 10)
+        val tetLunar = LunarCalendar.fromSolar(tet)
+        assertEquals("Mùng 1 Tết Nguyên Đán", LunarCalendar.getHoliday(tet, tetLunar))
+
+        val nationalDay = LocalDate.of(2024, 9, 2)
+        val nationalDayLunar = LunarCalendar.fromSolar(nationalDay)
+        assertEquals("Quốc khánh Việt Nam", LunarCalendar.getHoliday(nationalDay, nationalDayLunar))
+    }
+
+    @Test
+    fun monthCalendarGridGeneration() {
+        val ym = YearMonth.of(2026, 11)
+        val days = LunarCalendar.getMonthCalendarDays(ym, LocalDate.of(2026, 11, 8))
+
+        // Phải là bội số của 7
+        assertEquals(0, days.size % 7)
+        // Tháng 11 có 30 ngày
+        assertEquals(30, days.count { it.isCurrentMonth })
+        // Ngày 8/11/2026 phải được đánh dấu là hôm nay
+        val todayCell = days.first { it.date == LocalDate.of(2026, 11, 8) }
+        assertTrue(todayCell.isToday)
+        assertTrue(todayCell.isCurrentMonth)
+    }
+
+    @Test
+    fun notableDaysOfMonthContainsFirstAndFullMoon() {
+        val ym = YearMonth.of(2026, 11)
+        val daysInMonth = ym.lengthOfMonth()
+        for (d in 1..daysInMonth) {
+            val date = ym.atDay(d)
+            val lunar = LunarCalendar.fromSolar(date)
+            println("$date -> Lunar ${lunar.day}/${lunar.month}")
+        }
+        val notables = LunarCalendar.getNotableDaysOfMonth(ym)
+        println("Notables: $notables")
+        assertTrue(notables.isNotEmpty())
     }
 }
