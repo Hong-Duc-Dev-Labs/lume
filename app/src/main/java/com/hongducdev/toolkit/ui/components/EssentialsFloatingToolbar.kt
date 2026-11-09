@@ -1,5 +1,8 @@
 package com.hongducdev.toolkit.ui.components
 
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -98,6 +101,7 @@ fun EssentialsFloatingToolbar(
     onHelpClick: (() -> Unit)? = null,
     fabAction: (() -> Unit)? = null,
     fabIcon: ImageVector? = null,
+    fabVisible: Boolean = true,
     floatingActionButton: (@Composable () -> Unit)? = null,
     scrollBehavior: FloatingToolbarScrollBehavior? = null,
     expanded: Boolean = true,
@@ -106,7 +110,7 @@ fun EssentialsFloatingToolbar(
 ) {
     val view = LocalView.current
     val screenWidth = availableWidth ?: LocalConfiguration.current.screenWidthDp.dp
-    val titleWidth = (screenWidth - 32.dp - 56.dp - 8.dp - 16.dp - 48.dp - 8.dp).coerceIn(0.dp, 192.dp)
+    val maxTitleWidth = (screenWidth - 32.dp - 56.dp - 8.dp - 16.dp - 48.dp - 8.dp).coerceIn(0.dp, 192.dp)
     val collapse by animateFloatAsState(
         targetValue = if (backCollapsed) 1f else 0f,
         animationSpec = tween(380, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)),
@@ -116,6 +120,18 @@ fun EssentialsFloatingToolbar(
     var latestOnBack by remember { mutableStateOf(onBackClick) }
     if (title != null) latestTitle = title
     if (onBackClick != null) latestOnBack = onBackClick
+
+    // Chiều rộng tiêu đề vừa khít với nội dung (tối đa maxTitleWidth), không cố định
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val titleStyle = MaterialTheme.typography.titleMedium
+    val titleWidth =
+        run {
+            val text = latestTitle ?: return@run maxTitleWidth
+            val textWidth = with(density) { measurer.measure(text, titleStyle).size.width.toDp() }
+            val extra = 16.dp + if (isBeta) 32.dp else 0.dp // padding ngang + tag Beta
+            (textWidth + extra + 4.dp).coerceAtMost(maxTitleWidth)
+        }
 
     val finalFab: (@Composable () -> Unit)? =
         when {
@@ -278,23 +294,29 @@ fun EssentialsFloatingToolbar(
             }
     }
 
-    if (finalFab != null) {
+    // Toolbar luôn là một call site duy nhất; FAB nằm cạnh trong cùng Row và chỉ đổi
+    // visibility có animation, nên chuyển tab không làm toolbar bị tạo lại (tránh giật).
+    Row(
+        modifier = toolbarModifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
         HorizontalFloatingToolbar(
-            modifier = toolbarModifier,
-            expanded = expanded,
-            floatingActionButton = finalFab,
-            scrollBehavior = scrollBehavior,
-            colors = toolbarColors,
-            content = toolbarContent,
-        )
-    } else {
-        HorizontalFloatingToolbar(
-            modifier = toolbarModifier,
             expanded = expanded,
             scrollBehavior = scrollBehavior,
             colors = toolbarColors,
             content = toolbarContent,
         )
+        AnimatedVisibility(
+            visible = finalFab != null && fabVisible,
+            enter = fadeIn() + scaleIn(initialScale = 0.6f) + expandHorizontally(),
+            exit = fadeOut() + scaleOut(targetScale = 0.6f) + shrinkHorizontally(),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.width(8.dp))
+                finalFab?.invoke()
+            }
+        }
     }
 }
 
