@@ -21,10 +21,23 @@ import java.util.concurrent.Executors
  * nuốt để SystemUI không bao giờ bị crash vì module này.
  */
 class SystemUiHook : IXposedHookLoadPackage {
-
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
+        // Áp dụng hook phông chữ UI hệ thống
+        if (lpparam.packageName == TARGET_PACKAGE || lpparam.packageName == ANDROID_PACKAGE) {
+            SystemFontHook.handleLoadPackage(lpparam)
+        }
+
+        if (lpparam.packageName == ANDROID_PACKAGE) {
+            ScreenTimeoutHook.apply(lpparam)
+            return
+        }
+
         if (lpparam.packageName != TARGET_PACKAGE) return
         Log.i(LOG_TAG, "nạp vào SystemUI")
+
+        // Hook thời gian sáng màn hình khóa
+        LockscreenTimeoutHook.apply(lpparam)
+
         try {
             XposedHelpers.findAndHookMethod(
                 DATE_VIEW_CLASS,
@@ -67,6 +80,7 @@ class SystemUiHook : IXposedHookLoadPackage {
     private companion object {
         const val LOG_TAG = "ToolkitHook"
         const val TARGET_PACKAGE = "com.android.systemui"
+        const val ANDROID_PACKAGE = "android"
         const val DATE_VIEW_CLASS = "com.google.android.systemui.smartspace.IcuDateTextView"
         const val SEPARATOR = " · "
     }
@@ -80,8 +94,11 @@ internal object HookSettingsCache {
     private val executor = Executors.newSingleThreadExecutor()
 
     @Volatile private var cachedTemplate: String = LunarFormatter.DEFAULT_TEMPLATE
+
     @Volatile private var lastRefresh = 0L
+
     @Volatile private var refreshing = false
+
     @Volatile private var lastHeartbeat = 0L
 
     /** Báo cho app Toolkit biết hook đang chạy, tối đa mỗi 10 phút một lần. */
