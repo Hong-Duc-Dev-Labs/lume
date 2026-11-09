@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Security
@@ -24,10 +23,8 @@ import androidx.compose.ui.unit.dp
 import com.hongducdev.toolkit.ui.components.PullTitleHeader
 import com.hongducdev.toolkit.ui.components.rememberPullTitleHeaderState
 import com.hongducdev.toolkit.ui.modifiers.scrollMotionBlur
-import com.hongducdev.toolkit.ui.core.cards.HeroBannerCard
 import com.hongducdev.toolkit.ui.core.cards.SettingsItem
 import com.hongducdev.toolkit.ui.core.containers.RoundedCardContainer
-import com.hongducdev.toolkit.ui.theme.EssentialsColorTokens
 
 @Composable
 fun AboutScreen(
@@ -59,18 +56,6 @@ fun AboutScreen(
                 title = "About",
                 caption = "ROM Custom Toolkit • Essentials Edition",
                 state = headerState,
-            )
-        }
-
-        item {
-            HeroBannerCard(
-                title = "ROM Custom Toolkit",
-                description = "Bộ công cụ tiện ích cao cấp cho Galaxy S10 5G & Android Custom ROM, thiết kế theo chuẩn Material 3 Expressive & sameerasw/essentials.",
-                icon = Icons.Rounded.AutoAwesome,
-                statusText = "Phiên bản v0.1.0",
-                statusColor = MaterialTheme.colorScheme.primary,
-                pastelColor = EssentialsColorTokens.PastelPurple,
-                vibrantColor = EssentialsColorTokens.VibrantPurple,
             )
         }
 

@@ -8,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
@@ -131,7 +132,8 @@ private fun ToolkitApp(initialTab: NavTab = NavTab.HOME) {
     }
 
     var diyNewRequested by rememberSaveable { mutableStateOf(false) }
-    val mainTabs = remember { listOf(NavTab.HOME, NavTab.DIY, NavTab.LUNAR, NavTab.ABOUT) }
+    var aboutOpen by rememberSaveable { mutableStateOf(false) }
+    val mainTabs = remember { listOf(NavTab.HOME, NavTab.DIY, NavTab.LUNAR) }
     val initialPage =
         remember {
             val idx = mainTabs.indexOf(initialTab)
@@ -144,7 +146,9 @@ private fun ToolkitApp(initialTab: NavTab = NavTab.HOME) {
             pageCount = { mainTabs.size },
         )
 
-    BackHandler(enabled = pagerState.currentPage != 0) {
+    BackHandler(enabled = aboutOpen) { aboutOpen = false }
+
+    BackHandler(enabled = pagerState.currentPage != 0 && !aboutOpen) {
         scope.launch {
             pagerState.animateScrollToPage(
                 0,
@@ -253,7 +257,20 @@ private fun ToolkitApp(initialTab: NavTab = NavTab.HOME) {
                 }
             }
 
+            // Màn About phủ lên pager; toolbar chuyển sang chế độ quay lại (cùng một toolbar)
+            if (aboutOpen) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surfaceContainer),
+                ) {
+                    AboutScreen(contentPadding = contentPadding)
+                }
+            }
+
             // Material 3 Expressive Horizontal Floating Toolbar
+            val isDiyTab = mainTabs.getOrNull(pagerState.currentPage) == NavTab.DIY
             EssentialsFloatingToolbar(
                 items =
                     mainTabs.mapIndexed { index, tab ->
@@ -276,13 +293,16 @@ private fun ToolkitApp(initialTab: NavTab = NavTab.HOME) {
                     },
                 selectedIndex =
                     pagerState.currentPage.coerceIn(0, mainTabs.lastIndex),
+                title = if (aboutOpen) "About" else null,
+                onBackClick = if (aboutOpen) ({ aboutOpen = false }) else null,
                 fabAction =
-                    if (mainTabs.getOrNull(pagerState.currentPage) == NavTab.DIY) {
+                    if (isDiyTab) {
                         { diyNewRequested = true }
                     } else {
-                        null
+                        { aboutOpen = true }
                     },
-                fabIcon = Icons.Rounded.Add,
+                fabVisible = !aboutOpen,
+                fabIcon = if (isDiyTab) Icons.Rounded.Add else Icons.Rounded.Info,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
