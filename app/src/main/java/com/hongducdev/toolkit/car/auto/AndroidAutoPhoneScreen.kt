@@ -283,6 +283,11 @@ fun AndroidAutoPhoneScreen(onExit: () -> Unit) {
                                 isNavigating = false
                                 services.routing.clearRoute()
                             },
+                            onClose = {
+                                HapticUtil.performVirtualKeyHaptic(view)
+                                isNavigating = false
+                                services.routing.clearRoute()
+                            },
                             onOpenGoogleMaps = {
                                 HapticUtil.performVirtualKeyHaptic(view)
                                 isNavigating = false
@@ -430,6 +435,7 @@ private fun RouteCard(
     isNavigating: Boolean,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onClose: () -> Unit,
     onOpenGoogleMaps: () -> Unit
 ) {
     Column(
@@ -461,18 +467,37 @@ private fun RouteCard(
                     fontWeight = FontWeight.Medium
                 )
             }
-            if (isNavigating) {
-                Box(
+            Spacer(Modifier.width(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (isNavigating) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(ExpressiveRadius.Pill))
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "ĐANG DẪN ĐƯỜNG",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = onClose,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(ExpressiveRadius.Pill))
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .size(36.dp)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape)
                 ) {
-                    Text(
-                        text = "ĐANG DẪN ĐƯỜNG",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = "Thoát chỉ đường",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
