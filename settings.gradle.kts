@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "toolkit"
+rootProject.name = "lume"
 include(":app")

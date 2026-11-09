@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.hongducdev.toolkit"
+    namespace = "labs.hongducdev.lume"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.hongducdev.toolkit"
+        applicationId = "labs.hongducdev.lume"
         minSdk = 29
         targetSdk = 36
         versionCode = 1

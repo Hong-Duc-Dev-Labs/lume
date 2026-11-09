@@ -68,7 +68,7 @@
 
         <provider
             android:name=".xposed.LunarSettingsProvider"
-            android:authorities="com.hongducdev.toolkit.settings"
+            android:authorities="labs.hongducdev.lume.settings"
             android:exported="true" />
 
         <service
@@ -113,7 +113,7 @@
             android:name=".services.automation.receivers.TimeAutomationReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.hongducdev.toolkit.ACTION_TIME_AUTOMATION_TRIGGER" />
+                <action android:name="labs.hongducdev.lume.ACTION_TIME_AUTOMATION_TRIGGER" />
             </intent-filter>
         </receiver>
 
