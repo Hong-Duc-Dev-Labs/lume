@@ -3,49 +3,61 @@ package com.hongducdev.toolkit.ui.diy
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -56,12 +68,17 @@ import com.hongducdev.toolkit.domain.diy.DIYRepository
 import com.hongducdev.toolkit.domain.diy.DiyState
 import com.hongducdev.toolkit.domain.diy.Trigger
 import com.hongducdev.toolkit.services.automation.executors.CombinedActionExecutor
+import com.hongducdev.toolkit.ui.components.EssentialsFloatingToolbar
 import com.hongducdev.toolkit.ui.core.containers.RoundedCardContainer
+import com.hongducdev.toolkit.ui.core.pickers.SegmentedPicker
 import com.hongducdev.toolkit.ui.diy.sheets.AppSelectionSheet
+import com.hongducdev.toolkit.ui.modifiers.scrollMotionBlur
 import com.hongducdev.toolkit.ui.theme.ToolkitTheme
 import com.hongducdev.toolkit.utils.HapticUtil
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import java.util.UUID
+import kotlin.math.abs
 
 class AutomationEditorActivity : ComponentActivity() {
     companion object {
@@ -100,7 +117,7 @@ class AutomationEditorActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AutomationEditorScreen(
     automationId: String?,
@@ -122,304 +139,191 @@ private fun AutomationEditorScreen(
     var actions by remember { mutableStateOf(existing?.actionList ?: emptyList()) }
     var entryActions by remember { mutableStateOf(existing?.entryActionList ?: emptyList()) }
     var exitActions by remember { mutableStateOf(existing?.exitActionList ?: emptyList()) }
+    var actionTab by remember { mutableIntStateOf(0) }
 
     var showAppPicker by remember { mutableStateOf(false) }
 
-    val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val pagerState = rememberPagerState(pageCount = { 2 })
+    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val navBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    fun goBack() {
+        if (pagerState.currentPage > 0) {
+            scope.launch { pagerState.animateScrollToPage(0) }
+        } else {
+            onFinish()
+        }
+    }
+
+    fun save() {
+        val finalName =
+            name.ifBlank {
+                when (type) {
+                    Automation.Type.TRIGGER -> selectedTrigger.title
+                    Automation.Type.STATE -> selectedState.title
+                    Automation.Type.APP -> "Ứng dụng (${selectedApps.size})"
+                    else -> "Quy tắc tự động"
+                }
+            }
+
+        val rule =
+            Automation(
+                id = existing?.id ?: UUID.randomUUID().toString(),
+                name = finalName,
+                type = type,
+                trigger = if (type == Automation.Type.TRIGGER) selectedTrigger else null,
+                state = if (type == Automation.Type.STATE) selectedState else null,
+                actions = actions,
+                entryActions = entryActions,
+                exitActions = exitActions,
+                selectedApps = selectedApps,
+                isEnabled = existing?.isEnabled ?: true,
+            )
+
+        if (existing != null) DIYRepository.updateAutomation(rule) else DIYRepository.addAutomation(rule)
+        Toast.makeText(context, "Đã lưu quy tắc", Toast.LENGTH_SHORT).show()
+        onFinish()
+    }
+
+    BackHandler { goBack() }
+
+    // Rung nhẹ khi vuốt giữa các trang, rung mạnh khi trang đã chốt, giống Essentials.
+    val swipeHaptics =
+        remember {
+            object : NestedScrollConnection {
+                var accumulated = 0f
+
+                override fun onPreScroll(
+                    available: Offset,
+                    source: NestedScrollSource,
+                ): Offset {
+                    if (source == NestedScrollSource.UserInput) {
+                        accumulated += available.x
+                        if (abs(accumulated) >= 40f) {
+                            HapticUtil.performSliderHaptic(view)
+                            accumulated = 0f
+                        }
+                    }
+                    return Offset.Zero
+                }
+            }
+        }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.drop(1).collect { HapticUtil.performHeavyHaptic(view) }
+    }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = if (existing != null) "Chỉnh sửa quy tắc" else "Tạo quy tắc mới",
-                        fontWeight = FontWeight.Bold,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onFinish) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Quay lại")
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            HapticUtil.performVirtualKeyHaptic(view)
-                            val finalName =
-                                name.ifBlank {
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+    ) { _ ->
+        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainer)) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize().nestedScroll(swipeHaptics),
+                contentPadding = PaddingValues(horizontal = 18.dp),
+                pageSpacing = 4.dp,
+            ) { page ->
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .clip(MaterialTheme.shapes.extraLarge)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                ) {
+                    val listState = rememberLazyListState()
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize().scrollMotionBlur(listState),
+                        contentPadding =
+                            PaddingValues(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = statusBarHeight + 20.dp,
+                                bottom = navBarHeight + 120.dp,
+                            ),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        if (page == 0) {
+                            item {
+                                TriggerPicker(
+                                    type = type,
+                                    onTypeChange = { type = it },
+                                    selectedTrigger = selectedTrigger,
+                                    onTriggerChange = { selectedTrigger = it },
+                                    selectedState = selectedState,
+                                    onStateChange = { selectedState = it },
+                                    selectedAppCount = selectedApps.size,
+                                    onPickApps = { showAppPicker = true },
+                                )
+                            }
+                        } else {
+                            actionPageItems(
+                                type = type,
+                                name = name,
+                                onNameChange = { name = it },
+                                namePlaceholder =
                                     when (type) {
                                         Automation.Type.TRIGGER -> selectedTrigger.title
                                         Automation.Type.STATE -> selectedState.title
-                                        Automation.Type.APP -> "Ứng dụng (${selectedApps.size})"
+                                        Automation.Type.APP -> "Khi mở ứng dụng"
                                         else -> "Quy tắc tự động"
-                                    }
-                                }
-
-                            val rule =
-                                Automation(
-                                    id = existing?.id ?: UUID.randomUUID().toString(),
-                                    name = finalName,
-                                    type = type,
-                                    trigger = if (type == Automation.Type.TRIGGER) selectedTrigger else null,
-                                    state = if (type == Automation.Type.STATE) selectedState else null,
-                                    actions = actions,
-                                    entryActions = entryActions,
-                                    exitActions = exitActions,
-                                    selectedApps = selectedApps,
-                                    isEnabled = existing?.isEnabled ?: true,
-                                )
-
-                            if (existing != null) {
-                                DIYRepository.updateAutomation(rule)
-                            } else {
-                                DIYRepository.addAutomation(rule)
-                            }
-
-                            Toast.makeText(context, "Đã lưu quy tắc", Toast.LENGTH_SHORT).show()
-                            onFinish()
-                        },
-                    ) {
-                        Icon(Icons.Rounded.Check, contentDescription = "Lưu")
-                    }
-                },
-                colors =
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ),
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-    ) { innerPadding ->
-        LazyColumn(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            item {
-                Spacer(modifier = Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Tên quy tắc (Tùy chọn)") },
-                    placeholder = {
-                        Text(
-                            when (type) {
-                                Automation.Type.TRIGGER -> selectedTrigger.title
-                                Automation.Type.STATE -> selectedState.title
-                                Automation.Type.APP -> "Khi mở ứng dụng"
-                                else -> "Quy tắc tự động"
-                            },
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
-            }
-
-            // Chọn Trigger / State / Apps
-            item {
-                when (type) {
-                    Automation.Type.TRIGGER -> {
-                        RoundedCardContainer(title = "Sự kiện kích hoạt (Trigger)") {
-                            val availableTriggers =
-                                listOf(
-                                    Trigger.ChargerConnected,
-                                    Trigger.ChargerDisconnected,
-                                    Trigger.ScreenOn,
-                                    Trigger.ScreenOff,
-                                    Trigger.DeviceUnlock,
-                                    Trigger.PowerSavingOn,
-                                    Trigger.PowerSavingOff,
-                                    Trigger.DndOn,
-                                    Trigger.DndOff,
-                                    Trigger.AndroidAutoConnected,
-                                    Trigger.AndroidAutoDisconnected,
-                                    Trigger.Schedule(hour = 7, minute = 0),
-                                    Trigger.WifiConnected(),
-                                    Trigger.BluetoothConnected(),
-                                )
-
-                            availableTriggers.forEach { trig ->
-                                val isSelected = trig::class == selectedTrigger::class
-                                Row(
-                                    modifier =
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                HapticUtil.performVirtualKeyHaptic(view)
-                                                selectedTrigger = trig
-                                            }.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color =
-                                            if (isSelected) {
-                                                MaterialTheme.colorScheme.primaryContainer
-                                            } else {
-                                                MaterialTheme.colorScheme.surfaceContainerHigh
-                                            },
-                                        modifier = Modifier.size(36.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = trig.icon,
-                                            contentDescription = null,
-                                            tint =
-                                                if (isSelected) {
-                                                    MaterialTheme.colorScheme.onPrimaryContainer
-                                                } else {
-                                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                                },
-                                            modifier = Modifier.padding(8.dp),
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(14.dp))
-                                    Text(
-                                        text = trig.title,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Automation.Type.STATE -> {
-                        RoundedCardContainer(title = "Điều kiện trạng thái (State)") {
-                            val availableStates =
-                                listOf(
-                                    DiyState.Charging,
-                                    DiyState.ScreenOn,
-                                    DiyState.PowerSaving,
-                                    DiyState.BatteryLevel(minLevel = 0, maxLevel = 20),
-                                    DiyState.TimePeriod(startHour = 22, startMinute = 0, endHour = 7, endMinute = 0),
-                                )
-
-                            availableStates.forEach { st ->
-                                val isSelected = st::class == selectedState::class
-                                Row(
-                                    modifier =
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                HapticUtil.performVirtualKeyHaptic(view)
-                                                selectedState = st
-                                            }.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color =
-                                            if (isSelected) {
-                                                MaterialTheme.colorScheme.primaryContainer
-                                            } else {
-                                                MaterialTheme.colorScheme.surfaceContainerHigh
-                                            },
-                                        modifier = Modifier.size(36.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = st.icon,
-                                            contentDescription = null,
-                                            tint =
-                                                if (isSelected) {
-                                                    MaterialTheme.colorScheme.onPrimaryContainer
-                                                } else {
-                                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                                },
-                                            modifier = Modifier.padding(8.dp),
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(14.dp))
-                                    Text(
-                                        text = st.title,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Automation.Type.APP -> {
-                        RoundedCardContainer(title = "Ứng dụng kích hoạt") {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text(
-                                    text = "Đã chọn ${selectedApps.size} ứng dụng",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Button(onClick = { showAppPicker = true }) {
-                                    Text("Chọn danh sách ứng dụng")
-                                }
-                            }
-                        }
-                    }
-
-                    else -> {}
-                }
-            }
-
-            // Phần thiết lập hành động thực thi (Actions)
-            item {
-                if (type == Automation.Type.TRIGGER) {
-                    RoundedCardContainer(title = "Hành động thực thi (Actions)") {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            ActionSequenceEditor(
+                                    },
                                 actions = actions,
                                 onActionsChange = { actions = it },
-                            )
-                        }
-                    }
-                } else {
-                    RoundedCardContainer(title = "Khi bắt đầu điều kiện (Entry Actions)") {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            ActionSequenceEditor(
-                                actions = entryActions,
-                                onActionsChange = { entryActions = it },
-                                emptyMessage = "Chưa có hành động khi bắt đầu.",
+                                entryActions = entryActions,
+                                onEntryActionsChange = { entryActions = it },
+                                exitActions = exitActions,
+                                onExitActionsChange = { exitActions = it },
+                                actionTab = actionTab,
+                                onActionTabChange = { actionTab = it },
+                                onTest = {
+                                    HapticUtil.performUIHaptic(view)
+                                    scope.launch {
+                                        val testList = if (type == Automation.Type.TRIGGER) actions else entryActions
+                                        CombinedActionExecutor.executeAll(context, testList)
+                                        Toast.makeText(context, "Đã chạy thử chuỗi hành động!", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
                             )
                         }
                     }
 
-                    RoundedCardContainer(title = "Khi kết thúc điều kiện (Exit Actions)") {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            ActionSequenceEditor(
-                                actions = exitActions,
-                                onActionsChange = { exitActions = it },
-                                emptyMessage = "Chưa có hành động khi kết thúc.",
+                    if (pagerState.currentPage != page) {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
+                                    .clickable {
+                                        HapticUtil.performUIHaptic(view)
+                                        scope.launch { pagerState.animateScrollToPage(page) }
+                                    },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector =
+                                    if (page > pagerState.currentPage) {
+                                        Icons.AutoMirrored.Rounded.KeyboardArrowRight
+                                    } else {
+                                        Icons.AutoMirrored.Rounded.KeyboardArrowLeft
+                                    },
+                                contentDescription = "Mở rộng",
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(36.dp),
                             )
                         }
                     }
                 }
             }
 
-            // Nút chạy thử nghiệm ngay (Test)
-            item {
-                OutlinedButton(
-                    onClick = {
-                        HapticUtil.performVirtualKeyHaptic(view)
-                        scope.launch {
-                            val testList = if (type == Automation.Type.TRIGGER) actions else entryActions
-                            CombinedActionExecutor.executeAll(context, testList)
-                            Toast.makeText(context, "Đã chạy thử chuỗi hành động!", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Chạy thử chuỗi hành động ngay (Test)")
-                }
-                Spacer(modifier = Modifier.height(32.dp))
-            }
+            EssentialsFloatingToolbar(
+                modifier = Modifier.align(Alignment.BottomCenter),
+                title = if (existing != null) "Chỉnh sửa quy tắc" else "Tạo quy tắc mới",
+                onBackClick = ::goBack,
+                fabAction = ::save,
+                fabIcon = Icons.Rounded.Check,
+                fabVisible = type != Automation.Type.APP || selectedApps.isNotEmpty(),
+            )
         }
     }
 
@@ -432,5 +336,129 @@ private fun AutomationEditorScreen(
                 selectedApps = apps.map { it.packageName }
             },
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+private fun LazyListScope.actionPageItems(
+    type: Automation.Type,
+    name: String,
+    onNameChange: (String) -> Unit,
+    namePlaceholder: String,
+    actions: List<Action>,
+    onActionsChange: (List<Action>) -> Unit,
+    entryActions: List<Action>,
+    onEntryActionsChange: (List<Action>) -> Unit,
+    exitActions: List<Action>,
+    onExitActionsChange: (List<Action>) -> Unit,
+    actionTab: Int,
+    onActionTabChange: (Int) -> Unit,
+    onTest: () -> Unit,
+) {
+    item {
+        Text(
+            text = "Chọn hành động",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
+    }
+
+    item {
+        RoundedCardContainer {
+            TextField(
+                value = name,
+                onValueChange = onNameChange,
+                placeholder = { Text(namePlaceholder) },
+                label = { Text("Tên quy tắc (Tùy chọn)") },
+                singleLine = true,
+                shape = RectangleShape,
+                colors =
+                    TextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceBright,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceBright,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+
+    if (type == Automation.Type.TRIGGER) {
+        item {
+            FlatCard {
+                ActionSequenceEditor(actions = actions, onActionsChange = onActionsChange)
+            }
+        }
+    } else {
+        item {
+            SegmentedPicker(
+                items = listOf(0 to "Khi bắt đầu", 1 to "Khi kết thúc"),
+                selectedItem = actionTab,
+                onItemSelected = onActionTabChange,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        item {
+            FlatCard {
+                if (actionTab == 0) {
+                    ActionSequenceEditor(
+                        actions = entryActions,
+                        onActionsChange = onEntryActionsChange,
+                        emptyMessage = "Chưa có hành động khi bắt đầu.",
+                    )
+                } else {
+                    ActionSequenceEditor(
+                        actions = exitActions,
+                        onActionsChange = onExitActionsChange,
+                        emptyMessage = "Chưa có hành động khi kết thúc.",
+                    )
+                }
+            }
+        }
+    }
+
+    item {
+        RoundedCardContainer {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceBright)
+                        .clickable(onClick = onTest)
+                        .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    Icons.Rounded.PlayArrow,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+                Text(
+                    text = "Chạy thử chuỗi hành động",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FlatCard(content: @Composable () -> Unit) {
+    RoundedCardContainer {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceBright)
+                    .padding(16.dp),
+        ) {
+            content()
+        }
     }
 }
